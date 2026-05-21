@@ -1,0 +1,6 @@
+{
+  "name": "Vendaora AI",
+  "description": "Plataforma de automação comercial com IA para WhatsApp, Instagram e CRM. Agentes de IA, CRM Kanban e Campanhas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
