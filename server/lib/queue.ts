@@ -1,7 +1,7 @@
 import { Queue, Worker, Job } from "bullmq";
 import { processIncomingMessage } from "./message-pipeline.ts";
 
-const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const REDIS_URL = process.env.REDIS_URL || "";
 
 const connection = {
   url: REDIS_URL,
@@ -14,20 +14,26 @@ const defaultJobOptions = {
   removeOnFail: 50,
 };
 
-export const messageQueue = new Queue("messages", {
-  connection,
-  defaultJobOptions,
-});
+let messageQueue: Queue | null = null;
+let llmQueue: Queue | null = null;
+let outgoingQueue: Queue | null = null;
 
-export const llmQueue = new Queue("llm", {
-  connection,
-  defaultJobOptions: { ...defaultJobOptions, attempts: 2, backoff: { type: "exponential", delay: 5000 } },
-});
-
-export const outgoingQueue = new Queue("outgoing", {
-  connection,
-  defaultJobOptions,
-});
+function getQueues() {
+  if (!REDIS_URL) return null;
+  messageQueue ||= new Queue("messages", {
+    connection,
+    defaultJobOptions,
+  });
+  llmQueue ||= new Queue("llm", {
+    connection,
+    defaultJobOptions: { ...defaultJobOptions, attempts: 2, backoff: { type: "exponential", delay: 5000 } },
+  });
+  outgoingQueue ||= new Queue("outgoing", {
+    connection,
+    defaultJobOptions,
+  });
+  return { messageQueue, llmQueue, outgoingQueue };
+}
 
 export async function addMessageJob(data: {
   type: "incoming" | "llm" | "outgoing" | "handoff"
@@ -48,11 +54,16 @@ export async function addMessageJob(data: {
     return { processed: false, reason: "Redis nao configurado para este tipo de job" };
   }
 
+  const queues = getQueues();
+  if (!queues) {
+    return { processed: false, reason: "Redis nao configurado" };
+  }
+
   const queueMap = {
-    incoming: messageQueue,
-    llm: llmQueue,
-    outgoing: outgoingQueue,
-    handoff: messageQueue,
+    incoming: queues.messageQueue,
+    llm: queues.llmQueue,
+    outgoing: queues.outgoingQueue,
+    handoff: queues.messageQueue,
   };
 
   const queue = queueMap[data.type];
@@ -62,6 +73,11 @@ export async function addMessageJob(data: {
 }
 
 export function setupWorkers() {
+  if (!REDIS_URL) {
+    console.log("[Queue] Redis not configured, workers disabled");
+    return;
+  }
+
   new Worker("messages", async (job: Job) => {
     console.log(`[Queue] Processing message job: ${job.id} (${job.data.type})`);
     if (job.data.type === "incoming") {
