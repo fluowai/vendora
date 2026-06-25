@@ -1,0 +1,19 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t vendaora/app .
+      - name: Deploy to Railway
+        run: |
+          # Exemplo: deploy via Railway CLI
+          # npm i -g @railway/cli
+          # railway up --service vendaora-app
+          echo "Deploy configured via your preferred provider"

@@ -1,0 +1,67 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vendaora
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-vendaora_secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:-vendaora_secret}@postgres:5432/vendaora"
+      REDIS_URL: "redis://redis:6379"
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    ports:
+      - "3333:3333"
+    restart: unless-stopped
+
+  whatsmeow-bridge:
+    build: ./whatsmeow-bridge
+    depends_on:
+      - app
+    environment:
+      WHATSMEOW_WEBHOOK_URL: "http://app:3333/api/integrations/whatsmeow/incoming?tenantId=${TENANT_ID:-seed-tenant}"
+      WHATSMEOW_BRIDGE_SECRET: ${WHATSMEOW_BRIDGE_SECRET:-}
+      PORT: "4000"
+    ports:
+      - "4000:4000"
+    volumes:
+      - whatsmeow_data:/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  whatsmeow_data:

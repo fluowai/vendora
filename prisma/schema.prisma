@@ -1,0 +1,444 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // PostgreSQL para produção (Supabase)
+  // SQLite para desenvolvimento local (descomente abaixo e comente o postgresql)
+  provider = "sqlite"
+  // provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Plan {
+  id              String   @id @default(uuid())
+  name            String
+  price           Float    @default(0)
+  maxAgents       Int      @default(1)
+  maxConversations Int     @default(500)
+  maxChannels     Int      @default(1)
+  maxUsers        Int      @default(1)
+  features        Json?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenants         Tenant[]
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  document  String?
+  email     String?
+  phone     String?
+  status    String   @default("active")
+  planId    String?
+  plan      Plan?    @relation(fields: [planId], references: [id])
+
+  /// Whitelabel branding config
+  branding  Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users             User[]
+  roles             Role[]
+  departments       Department[]
+  channels          Channel[]
+  contacts          Contact[]
+  conversations     Conversation[]
+  messages          Message[]
+  deals             Deal[]
+  tickets           Ticket[]
+  ombudsmanCases    OmbudsmanCase[]
+  aiAgents          AiAgent[]
+  knowledgeBases    KnowledgeBase[]
+  calendars         Calendar[]
+  appointments      Appointment[]
+  auditLogs         AuditLog[]
+}
+
+model User {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  name          String
+  email         String   @unique
+  passwordHash  String
+  avatarUrl     String?
+  status        String   @default("active")
+  isSuperadmin  Boolean  @default(false)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userRoles     UserRole[]
+  conversations Conversation[] @relation("AssignedUser")
+  deals         Deal[]         @relation("AssignedUser")
+  tickets       Ticket[]       @relation("AssignedUser")
+  ombudsmanCases OmbudsmanCase[] @relation("AssignedUser")
+  appointments  Appointment[]  @relation("AppointmentAssignedUser")
+  auditLogs     AuditLog[]
+}
+
+model Role {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  
+  permissions Permission[]
+  userRoles   UserRole[]
+}
+
+model Permission {
+  id      String @id @default(uuid())
+  roleId  String
+  role    Role   @relation(fields: [roleId], references: [id])
+  action  String
+  subject String
+}
+
+model UserRole {
+  id      String @id @default(uuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  roleId  String
+  role    Role   @relation(fields: [roleId], references: [id])
+}
+
+model Department {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  
+  conversations Conversation[]
+  tickets       Ticket[]
+  ombudsmanCases OmbudsmanCase[]
+}
+
+model Channel {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String
+  provider  String
+  config    Json?
+  status    String   @default("active")
+
+  instances ChannelInstance[]
+}
+
+model ChannelInstance {
+  id        String   @id @default(uuid())
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id])
+  name      String
+  status    String
+  config    Json?
+
+  conversations Conversation[]
+}
+
+model Contact {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  email       String?
+  phone       String?
+  document    String?
+  companyName String?
+  city        String?
+  state       String?
+  source      String?
+  score       Int?
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  identities    ContactIdentity[]
+  conversations Conversation[]
+  messages      Message[]
+  deals         Deal[]
+  tickets       Ticket[]
+  ombudsmanCases OmbudsmanCase[]
+  appointments  Appointment[]
+}
+
+model ContactIdentity {
+  id         String   @id @default(uuid())
+  tenantId   String
+  contactId  String
+  contact    Contact  @relation(fields: [contactId], references: [id])
+  channel    String
+  provider   String
+  externalId String
+  username   String?
+  phone      String?
+  email      String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Conversation {
+  id                String   @id @default(uuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  contactId         String
+  contact           Contact  @relation(fields: [contactId], references: [id])
+  channelInstanceId String
+  channelInstance   ChannelInstance @relation(fields: [channelInstanceId], references: [id])
+  channel           String
+  status            String
+  assignedUserId    String?
+  assignedUser      User?    @relation("AssignedUser", fields: [assignedUserId], references: [id])
+  departmentId      String?
+  department        Department? @relation(fields: [departmentId], references: [id])
+  lastMessageAt     DateTime?
+  aiEnabled         Boolean  @default(true)
+  slaDueAt          DateTime?
+  priority          String   @default("normal")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  messages          Message[]
+  deals             Deal[]
+  tickets           Ticket[]
+  ombudsmanCases    OmbudsmanCase[]
+  appointments      Appointment[]
+}
+
+model Message {
+  id                String   @id @default(uuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  conversationId    String
+  conversation      Conversation @relation(fields: [conversationId], references: [id])
+  contactId         String?
+  contact           Contact? @relation(fields: [contactId], references: [id])
+  senderType        String
+  senderId          String
+  channel           String
+  providerMessageId String?
+  messageType       String
+  content           String
+  metadata          Json?
+  sentAt            DateTime @default(now())
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  createdAt         DateTime @default(now())
+}
+
+model Funnel {
+  id        String   @id @default(uuid())
+  tenantId  String
+  name      String
+  
+  stages    FunnelStage[]
+  deals     Deal[]
+}
+
+model FunnelStage {
+  id        String   @id @default(uuid())
+  funnelId  String
+  funnel    Funnel   @relation(fields: [funnelId], references: [id])
+  name      String
+  order     Int
+
+  deals     Deal[]
+}
+
+model Deal {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  contactId       String
+  contact         Contact  @relation(fields: [contactId], references: [id])
+  conversationId  String?
+  conversation    Conversation? @relation(fields: [conversationId], references: [id])
+  funnelId        String
+  funnel          Funnel   @relation(fields: [funnelId], references: [id])
+  stageId         String
+  stage           FunnelStage @relation(fields: [stageId], references: [id])
+  title           String
+  value           Float?
+  status          String
+  source          String?
+  temperature     String?
+  score           Int?
+  assignedUserId  String?
+  assignedUser    User?    @relation("AssignedUser", fields: [assignedUserId], references: [id])
+  expectedCloseDate DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Ticket {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  contactId       String
+  contact         Contact  @relation(fields: [contactId], references: [id])
+  conversationId  String?
+  conversation    Conversation? @relation(fields: [conversationId], references: [id])
+  title           String
+  description     String
+  status          String
+  priority        String
+  departmentId    String?
+  department      Department? @relation(fields: [departmentId], references: [id])
+  assignedUserId  String?
+  assignedUser    User?    @relation("AssignedUser", fields: [assignedUserId], references: [id])
+  slaDueAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model OmbudsmanCase {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  protocolNumber  String   @unique
+  contactId       String?
+  contact         Contact? @relation(fields: [contactId], references: [id])
+  conversationId  String?
+  conversation    Conversation? @relation(fields: [conversationId], references: [id])
+  type            String
+  category        String
+  description     String
+  status          String
+  priority        String
+  severity        String
+  departmentId    String?
+  department      Department? @relation(fields: [departmentId], references: [id])
+  assignedUserId  String?
+  assignedUser    User?    @relation("AssignedUser", fields: [assignedUserId], references: [id])
+  anonymous       Boolean  @default(false)
+  slaDueAt        DateTime?
+  officialResponse String?
+  closedAt        DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model AiAgent {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  name            String
+  segment         String
+  description     String?
+  modelProvider   String
+  modelName       String
+  temperature     Float    @default(0.7)
+  basePrompt      String
+  knowledgeBaseId String?
+  avatar          String?
+  parentId        String?
+  price           Float?
+  status          String   @default("active")
+  channels        Json?
+  isPublished     Boolean  @default(false)
+  installs        Int      @default(0)
+  rating          Float    @default(0)
+  authorId        String   @default("system")
+  authorName      String   @default("Vendaora AI")
+  tags            Json?
+  enabled         Boolean  @default(true)
+  handoffRules    Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  appointments    Appointment[]
+}
+
+model Calendar {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  timezone    String   @default("America/Sao_Paulo")
+  slotMinutes Int      @default(60)
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  availability CalendarAvailability[]
+  appointments Appointment[]
+}
+
+model CalendarAvailability {
+  id         String   @id @default(uuid())
+  calendarId String
+  calendar   Calendar @relation(fields: [calendarId], references: [id])
+  weekday    Int
+  startTime  String
+  endTime    String
+  isActive   Boolean  @default(true)
+}
+
+model Appointment {
+  id             String   @id @default(uuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  calendarId     String
+  calendar       Calendar @relation(fields: [calendarId], references: [id])
+  contactId      String?
+  contact        Contact? @relation(fields: [contactId], references: [id])
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  aiAgentId      String?
+  aiAgent        AiAgent? @relation(fields: [aiAgentId], references: [id])
+  assignedUserId String?
+  assignedUser   User?    @relation("AppointmentAssignedUser", fields: [assignedUserId], references: [id])
+  title          String
+  description    String?
+  status         String   @default("scheduled")
+  startsAt       DateTime
+  endsAt         DateTime
+  source         String   @default("ai")
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model KnowledgeBase {
+  id        String     @id @default(uuid())
+  tenantId  String
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  name      String
+  documents Document[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Document {
+  id              String       @id @default(uuid())
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id])
+  name            String
+  type            String
+  content         String
+  chunks          Json?
+  createdAt       DateTime     @default(now())
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  action      String
+  entityType  String
+  entityId    String
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+}

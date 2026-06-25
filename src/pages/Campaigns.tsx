@@ -50,16 +50,16 @@ export default function Campaigns() {
             />
           </div>
           <div className="flex gap-2">
-            <button className="px-3 py-1.5 bg-white/5 text-muted text-[10px] font-bold rounded-lg border border-white/10 hover:text-white">TODAS</button>
-            <button className="px-3 py-1.5 bg-white/5 text-muted text-[10px] font-bold rounded-lg border border-white/10 hover:text-white">ENVIADAS</button>
-            <button className="px-3 py-1.5 bg-white/5 text-muted text-[10px] font-bold rounded-lg border border-white/10 hover:text-white">AGENDADAS</button>
+            <button className="px-3 py-1.5 bg-bg text-muted text-[10px] font-bold rounded-lg border border-border hover:bg-surface hover:text-text">TODAS</button>
+            <button className="px-3 py-1.5 bg-bg text-muted text-[10px] font-bold rounded-lg border border-border hover:bg-surface hover:text-text">ENVIADAS</button>
+            <button className="px-3 py-1.5 bg-bg text-muted text-[10px] font-bold rounded-lg border border-border hover:bg-surface hover:text-text">AGENDADAS</button>
           </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-white/5">
+              <tr className="border-b border-border">
                 <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest pl-4">Campanha</th>
                 <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Status</th>
                 <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Data</th>
@@ -67,13 +67,13 @@ export default function Campaigns() {
                 <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest text-right pr-4">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-border">
               {campaigns.map((camp) => (
-                <tr key={camp.id} className="group hover:bg-white/5 transition-all">
+                <tr key={camp.id} className="group hover:bg-bg/50 transition-all">
                   <td className="py-6 pl-4">
                     <div className="flex items-center gap-3">
-                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center opacity-80", camp.color)}>
-                        <Megaphone className="w-5 h-5 text-bg" />
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-white", camp.color)}>
+                        <Megaphone className="w-5 h-5" />
                       </div>
                       <span className="font-bold text-sm group-hover:text-primary transition-colors">{camp.title}</span>
                     </div>
@@ -97,7 +97,7 @@ export default function Campaigns() {
                     </div>
                   </td>
                   <td className="py-6 text-right pr-4">
-                    <button className="p-2 hover:bg-white/10 rounded-lg transition-all text-muted hover:text-white">
+                    <button className="p-2 hover:bg-bg rounded-lg transition-all text-muted hover:text-text">
                       <MoreVertical className="w-4 h-4" />
                     </button>
                   </td>
@@ -113,8 +113,8 @@ export default function Campaigns() {
 
 function StatCard({ icon: Icon, label, value }: { icon: any, label: string, value: string }) {
   return (
-    <div className="bg-surface p-6 rounded-3xl border border-border flex items-center gap-4">
-      <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-primary border border-white/10">
+    <div className="bg-surface p-6 rounded-3xl border border-border flex items-center gap-4 card-shadow">
+      <div className="w-12 h-12 rounded-2xl bg-primary/5 flex items-center justify-center text-primary border border-primary/10">
         <Icon className="w-6 h-6" />
       </div>
       <div>
