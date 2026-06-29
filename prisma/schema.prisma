@@ -3,8 +3,14 @@ generator client {
 }
 
 datasource db {
-  // PostgreSQL para produção (Supabase)
-  // SQLite para desenvolvimento local (descomente abaixo e comente o postgresql)
+  // Dev:    provider = "sqlite"     (DATABASE_URL="file:./dev.db")
+  // Prod:   provider = "postgresql"  (DATABASE_URL="postgresql://...")
+  //
+  // Para migrar para Supabase/PostgreSQL:
+  //   1. Comente a linha provider = "sqlite"
+  //   2. Descomente a linha provider = "postgresql"
+  //   3. Execute: npx prisma migrate deploy
+  //   4. Execute: npm run db:seed
   provider = "sqlite"
   // provider = "postgresql"
   url      = env("DATABASE_URL")
