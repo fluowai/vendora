@@ -3,6 +3,7 @@ import prisma from "../lib/prisma.ts";
 import { authMiddleware } from "../middleware/auth.ts";
 import { requirePermission } from "../middleware/permissions.ts";
 import { validate, schemas } from "../middleware/validate.ts";
+import { webhookLimiter } from "../middleware/rate-limit.ts";
 import { addMessageJob } from "../lib/queue.ts";
 
 const router = Router();
@@ -233,7 +234,7 @@ function extractChatwootPayload(body: any) {
   };
 }
 
-router.post("/chatwoot/webhook", async (req: Request, res: Response) => {
+router.post("/chatwoot/webhook", webhookLimiter, async (req: Request, res: Response) => {
   if (!assertWebhookSecret(req, res)) return;
 
   const tenantId = asString(req.headers["x-tenant-id"] || req.query.tenantId || req.body.tenantId || req.body.tenant_id);
@@ -431,7 +432,7 @@ router.post("/connections",
   }
 );
 
-router.post("/whatsmeow/incoming", async (req: Request, res: Response) => {
+router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Response) => {
   if (!assertWebhookSecret(req, res)) return;
 
   const tenantId = asString(req.headers["x-tenant-id"] || req.query.tenantId || req.body.tenantId || req.body.tenant_id);

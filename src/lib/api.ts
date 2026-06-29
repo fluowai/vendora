@@ -148,4 +148,50 @@ export const api = {
   deleteDepartment: (id: string) => request<{ success: boolean }>(`/admin/departments/${id}`, { method: 'DELETE' }),
   getSettings: () => request<{ settings: any }>('/admin/settings'),
   updateSettings: (data: any) => request<{ success: boolean }>(`/admin/settings`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Tickets
+  getTickets: (params?: { status?: string; priority?: string; search?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.priority) qs.set('priority', params.priority)
+    if (params?.search) qs.set('search', params.search)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return request<{ tickets: any[]; stats: any }>(`/tickets${suffix}`)
+  },
+  getTicket: (id: string) => request<{ ticket: any }>(`/tickets/${id}`),
+  createTicket: (data: any) => request<{ ticket: any }>('/tickets', { method: 'POST', body: JSON.stringify(data) }),
+  updateTicket: (id: string, data: any) => request<{ ticket: any }>(`/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTicket: (id: string) => request<{ success: boolean }>(`/tickets/${id}`, { method: 'DELETE' }),
+
+  // CRM
+  getFunnels: () => request<{ funnels: any[] }>('/crm/funnels'),
+  createFunnel: (data: any) => request<{ funnel: any }>('/crm/funnels', { method: 'POST', body: JSON.stringify(data) }),
+  getFunnelStages: (funnelId: string) => request<{ funnel: any; stages: any[] }>(`/crm/stages/${funnelId}`),
+  getDeals: (params?: { status?: string; funnelId?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.funnelId) qs.set('funnelId', params.funnelId)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return request<{ deals: any[] }>(`/crm/deals${suffix}`)
+  },
+  createDeal: (data: any) => request<{ deal: any }>('/crm/deals', { method: 'POST', body: JSON.stringify(data) }),
+  updateDeal: (id: string, data: any) => request<{ deal: any }>(`/crm/deals/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Ombudsman
+  getOmbudsmanCases: (params?: { status?: string; type?: string; priority?: string; search?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.type) qs.set('type', params.type)
+    if (params?.priority) qs.set('priority', params.priority)
+    if (params?.search) qs.set('search', params.search)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return request<{ cases: any[]; stats: any }>(`/ombudsman/cases${suffix}`)
+  },
+  getOmbudsmanCase: (id: string) => request<{ case: any }>(`/ombudsman/cases/${id}`),
+  createOmbudsmanCase: (data: any) => request<{ case: any }>('/ombudsman/cases', { method: 'POST', body: JSON.stringify(data) }),
+  updateOmbudsmanCase: (id: string, data: any) => request<{ case: any }>(`/ombudsman/cases/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Upload
+  uploadAvatar: (base64: string, mimeType: string) =>
+    request<{ url: string }>('/upload/avatar', { method: 'POST', body: JSON.stringify({ base64, mimeType }) }),
 }

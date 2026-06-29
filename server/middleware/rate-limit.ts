@@ -23,3 +23,11 @@ export const agentChatLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Muitas mensagens para o agente. Aguarde um momento." },
 });
+
+export const webhookLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas requisições de webhook. Tente novamente em 1 minuto." },
+});

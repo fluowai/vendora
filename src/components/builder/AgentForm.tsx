@@ -1,6 +1,7 @@
-import { useState } from "react"
-import { X, Bot, Save, Sparkles } from "lucide-react"
+import { useState, useRef } from "react"
+import { X, Bot, Save, Sparkles, Camera } from "lucide-react"
 import { cn } from "@/src/lib/utils"
+import { api } from "@/src/lib/api"
 
 const segments = [
   { id: 'vendas', label: 'Vendas' },
@@ -65,7 +66,27 @@ export function AgentForm({
     temperature: initial?.llmConfig?.temperature ?? 0.7,
     channels: initial?.channels || ['web'],
     status: initial?.status || 'draft',
+    avatarUrl: initial?.avatar || '',
   })
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function handleAvatarUpload(file: File) {
+    if (!file) return
+    setUploading(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async () => {
+        const base64 = (reader.result as string).split(",")[1]
+        const res = await api.uploadAvatar(base64, file.type)
+        setForm((f) => ({ ...f, avatarUrl: res.url }))
+      }
+      reader.readAsDataURL(file)
+    } catch (e: any) {
+      console.error(e)
+    }
+    setUploading(false)
+  }
 
   const handleSegmentChange = (seg: string) => {
     setForm((f) => ({
@@ -86,13 +107,15 @@ export function AgentForm({
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    const { avatarUrl, ...rest } = form
     onSave({
-      ...form,
+      ...rest,
+      avatar: avatarUrl || undefined,
       llmConfig: {
-        provider: form.provider,
-        model: form.model,
-        systemPrompt: form.systemPrompt,
-        temperature: form.temperature,
+        provider: rest.provider,
+        model: rest.model,
+        systemPrompt: rest.systemPrompt,
+        temperature: rest.temperature,
       },
     })
   }
@@ -138,6 +161,38 @@ export function AgentForm({
                 className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary/50 transition-all resize-none h-20"
                 required
               />
+            </div>
+          </div>
+
+          {/* Avatar */}
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20 overflow-hidden">
+                {form.avatarUrl ? (
+                  <img src={form.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <Bot className="w-8 h-8 text-primary" />
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center border-2 border-surface hover:bg-primary/90 transition-all"
+              >
+                <Camera className="w-3 h-3" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => e.target.files?.[0] && handleAvatarUpload(e.target.files[0])}
+              />
+            </div>
+            <div>
+              <p className="text-xs font-bold">Avatar do Agente</p>
+              <p className="text-[10px] text-muted">PNG, JPG ou WebP · Máx 5MB</p>
             </div>
           </div>
 

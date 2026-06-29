@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateToken, verifyToken } from "../server/middleware/auth";
+import { generateToken, verifyToken } from "../../server/middleware/auth";
 
 describe("Auth Middleware", () => {
   const mockPayload = {
@@ -30,5 +30,11 @@ describe("Auth Middleware", () => {
     const token = generateToken(adminPayload);
     const decoded = verifyToken(token);
     expect(decoded.isSuperadmin).toBe(true);
+  });
+
+  it("should generate tokens that can be verified", () => {
+    const token = generateToken(mockPayload);
+    const decoded = verifyToken(token);
+    expect(decoded.userId).toBe(mockPayload.userId);
   });
 });

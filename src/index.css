@@ -27,6 +27,15 @@
   @apply bg-white/80 backdrop-blur-md border border-white;
 }
 
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(1rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
 .green-glow-soft {
   @apply shadow-[0_4px_14px_0_rgba(37,211,102,0.15)];
 }

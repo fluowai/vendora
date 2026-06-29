@@ -1,11 +1,7 @@
 import { useEffect, useState } from "react";
 import { Save, Building2, Mail, Phone, FileText, Shield, Users, Plus, X, Trash2 } from "lucide-react";
 import { api } from "@/src/lib/api";
-
-const toast = {
-  success: (message: string) => console.log(message),
-  error: (message: string) => alert(message),
-};
+import { useToast } from "@/src/components/Toast";
 
 export default function Settings() {
   const [tab, setTab] = useState<"company" | "team" | "roles" | "departments">("company");
@@ -14,6 +10,7 @@ export default function Settings() {
   const [roles, setRoles] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
   const tabs = [
     { id: "company" as const, label: "Empresa", icon: Building2 },
@@ -43,7 +40,7 @@ export default function Settings() {
         setDepartments(data.departments);
       }
     } catch (e: any) {
-      toast.error(e.message);
+      toast(e.message, "error");
     } finally {
       setLoading(false);
     }
@@ -81,6 +78,7 @@ export default function Settings() {
 
 function CompanySettings({ settings, onSaved }: { settings: any; onSaved: () => void }) {
   const [form, setForm] = useState({ name: "", email: "", phone: "", document: "" });
+  const { toast } = useToast();
 
   useEffect(() => {
     if (settings) setForm({ name: settings.company || "", email: settings.email || "", phone: settings.phone || "", document: settings.document || "" });
@@ -90,10 +88,10 @@ function CompanySettings({ settings, onSaved }: { settings: any; onSaved: () => 
     e.preventDefault();
     try {
       await api.updateSettings(form);
-      toast.success("Configurações salvas!");
+      toast("Configurações salvas!", "success");
       onSaved();
     } catch (err: any) {
-      toast.error(err.message);
+      toast(err.message, "error");
     }
   }
 
@@ -138,17 +136,18 @@ function CompanySettings({ settings, onSaved }: { settings: any; onSaved: () => 
 function TeamManagement({ team, onChanged }: { team: any[]; onChanged: () => void }) {
   const [showInvite, setShowInvite] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", password: "", roleName: "agent" });
+  const { toast } = useToast();
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
     try {
       await api.inviteTeamMember(form);
-      toast.success("Usuário convidado!");
+      toast("Usuário convidado!", "success");
       setShowInvite(false);
       setForm({ name: "", email: "", password: "", roleName: "agent" });
       onChanged();
     } catch (err: any) {
-      toast.error(err.message);
+      toast(err.message, "error");
     }
   }
 
@@ -156,10 +155,10 @@ function TeamManagement({ team, onChanged }: { team: any[]; onChanged: () => voi
     if (!confirm("Remover este usuário?")) return;
     try {
       await api.deleteTeamMember(id);
-      toast.success("Usuário removido");
+      toast("Usuário removido", "success");
       onChanged();
     } catch (err: any) {
-      toast.error(err.message);
+      toast(err.message, "error");
     }
   }
 
@@ -241,6 +240,7 @@ function RolesList({ roles }: { roles: any[] }) {
 
 function DepartmentsList({ departments, onChanged }: { departments: any[]; onChanged: () => void }) {
   const [newName, setNewName] = useState("");
+  const { toast } = useToast();
 
   async function handleCreate() {
     if (!newName.trim()) return;
@@ -248,9 +248,9 @@ function DepartmentsList({ departments, onChanged }: { departments: any[]; onCha
       await api.createDepartment(newName.trim());
       setNewName("");
       onChanged();
-      toast.success("Departamento criado!");
+      toast("Departamento criado!", "success");
     } catch (err: any) {
-      toast.error(err.message);
+      toast(err.message, "error");
     }
   }
 
@@ -259,9 +259,9 @@ function DepartmentsList({ departments, onChanged }: { departments: any[]; onCha
     try {
       await api.deleteDepartment(id);
       onChanged();
-      toast.success("Departamento removido");
+      toast("Departamento removido", "success");
     } catch (err: any) {
-      toast.error(err.message);
+      toast(err.message, "error");
     }
   }
 

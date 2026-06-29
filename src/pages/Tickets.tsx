@@ -1,13 +1,31 @@
 import { Plus, Search, Filter, Ticket, Clock, CheckCircle2, AlertTriangle, ChevronRight } from "lucide-react";
 import { cn } from "@/src/lib/utils";
-
-const mockTickets = [
-  { id: 'TK-1024', title: 'Problema com integração webhook', contact: 'João Silva', status: 'aberto', priority: 'high', department: 'Suporte Técnico', sla: 'Vence em 3h', date: 'Hoje, 14:30' },
-  { id: 'TK-1023', title: 'Dúvida sobre faturamento', contact: 'Maria Souza', status: 'pendente', priority: 'medium', department: 'Financeiro', sla: 'Vence em 8h', date: 'Hoje, 11:00' },
-  { id: 'TK-1022', title: 'Solicitação de novo usuário', contact: 'Eduardo Lima', status: 'resolvido', priority: 'low', department: 'Suporte Técnico', sla: '-', date: 'Ontem' },
-];
+import { api } from "@/src/lib/api";
+import { useEffect, useState } from "react";
 
 export default function Tickets() {
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [stats, setStats] = useState({ abertos: 0, slaVencido: 0, altaPrioridade: 0, resolvidosMes: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadTickets();
+  }, []);
+
+  async function loadTickets() {
+    try {
+      const data = await api.getTickets();
+      setTickets(data.tickets);
+      setStats(data.stats);
+    } catch (e: any) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) return <div className="p-8 text-muted">Carregando...</div>;
+
   return (
     <div className="h-full flex flex-col space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -32,19 +50,19 @@ export default function Tickets() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 lg:p-6 rounded-2xl border border-border shadow-sm">
           <span className="text-xs font-bold text-muted uppercase tracking-widest">Abertos</span>
-          <p className="text-3xl font-display font-bold text-text mt-2">8</p>
+          <p className="text-3xl font-display font-bold text-text mt-2">{stats.abertos}</p>
         </div>
         <div className="bg-[#FFF4F2] p-4 lg:p-6 rounded-2xl border border-red-100 shadow-sm">
           <span className="text-xs font-bold text-red-500 uppercase tracking-widest flex items-center gap-1"><Clock className="w-3 h-3"/> SLA Vencido</span>
-          <p className="text-3xl font-display font-bold text-red-600 mt-2">2</p>
+          <p className="text-3xl font-display font-bold text-red-600 mt-2">{stats.slaVencido}</p>
         </div>
         <div className="bg-[#FEF9C3] p-4 lg:p-6 rounded-2xl border border-yellow-200 shadow-sm">
           <span className="text-xs font-bold text-yellow-600 uppercase tracking-widest flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Alta Prioridade</span>
-          <p className="text-3xl font-display font-bold text-yellow-700 mt-2">3</p>
+          <p className="text-3xl font-display font-bold text-yellow-700 mt-2">{stats.altaPrioridade}</p>
         </div>
         <div className="bg-[#E8F6F0] p-4 lg:p-6 rounded-2xl border border-[#25D366]/20 shadow-sm">
           <span className="text-xs font-bold text-primary uppercase tracking-widest flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> Resolvidos (Mês)</span>
-          <p className="text-3xl font-display font-bold text-[#128C7E] mt-2">24</p>
+          <p className="text-3xl font-display font-bold text-[#128C7E] mt-2">{stats.resolvidosMes}</p>
         </div>
       </div>
 
@@ -63,26 +81,28 @@ export default function Tickets() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {mockTickets.map(t => (
+              {tickets.map((t: any) => (
                 <tr key={t.id} className="hover:bg-bg/50 transition-all group cursor-pointer">
                   <td className="px-6 py-4">
-                    <span className="font-bold text-sm">{t.id}</span>
-                    <p className="text-[10px] text-muted">{t.date}</p>
+                    <span className="font-bold text-sm">#{t.id.slice(0, 8)}</span>
+                    <p className="text-[10px] text-muted">{new Date(t.createdAt).toLocaleDateString()}</p>
                   </td>
                   <td className="px-6 py-4 font-medium text-sm">{t.title}</td>
-                  <td className="px-6 py-4 text-sm">{t.contact}</td>
-                  <td className="px-6 py-4"><span className="text-xs bg-bg px-2 py-1 rounded font-bold">{t.department}</span></td>
+                  <td className="px-6 py-4 text-sm">{t.contact?.name || "—"}</td>
+                  <td className="px-6 py-4"><span className="text-xs bg-bg px-2 py-1 rounded font-bold">{t.department?.name || "—"}</span></td>
                   <td className="px-6 py-4">
-                    <span className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border", 
-                      t.status === 'resolvido' ? 'bg-green-50 text-green-600 border-green-200' : 
-                      t.status === 'aberto' ? 'bg-blue-50 text-blue-600 border-blue-200' : 
+                    <span className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border",
+                      t.status === 'resolvido' || t.status === 'fechado' ? 'bg-green-50 text-green-600 border-green-200' :
+                      t.status === 'aberto' ? 'bg-blue-50 text-blue-600 border-blue-200' :
                       'bg-yellow-50 text-yellow-600 border-yellow-200'
                     )}>{t.status}</span>
                   </td>
                   <td className="px-6 py-4">
-                    {t.sla === 'Vencido' ? <span className="text-xs font-bold text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Vencido</span> :
-                     t.sla === '-' ? <span className="text-xs text-muted">-</span> :
-                     <span className="text-xs text-muted flex items-center gap-1"><Clock className="w-3 h-3"/> {t.sla}</span>}
+                    {t.slaDueAt && new Date(t.slaDueAt) < new Date() && t.status !== 'resolvido' && t.status !== 'fechado' ? (
+                      <span className="text-xs font-bold text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Vencido</span>
+                    ) : (
+                      <span className="text-xs text-muted">—</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <button className="p-2 hover:bg-white rounded-lg text-muted opacity-0 group-hover:opacity-100 transition-all border border-transparent group-hover:border-border shadow-sm">
@@ -91,6 +111,9 @@ export default function Tickets() {
                   </td>
                 </tr>
               ))}
+              {tickets.length === 0 && (
+                <tr><td colSpan={7} className="text-center py-8 text-muted">Nenhum ticket encontrado</td></tr>
+              )}
             </tbody>
           </table>
         </div>

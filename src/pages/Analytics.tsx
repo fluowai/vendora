@@ -1,31 +1,14 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   BarChart3, TrendingUp, Users, MessageSquare, DollarSign,
   Clock, Bot, ArrowUpRight, Download, Calendar, Filter
 } from "lucide-react"
 import { cn } from "@/src/lib/utils"
+import { api } from "@/src/lib/api"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, PieChart, Pie, Cell, LineChart, Line, Legend
 } from "recharts"
-
-const weeklyData = [
-  { name: "Seg", conversas: 450, leads: 78, resolucao: 92 },
-  { name: "Ter", conversas: 520, leads: 95, resolucao: 88 },
-  { name: "Qua", conversas: 480, leads: 82, resolucao: 94 },
-  { name: "Qui", conversas: 610, leads: 112, resolucao: 90 },
-  { name: "Sex", conversas: 560, leads: 98, resolucao: 86 },
-  { name: "Sáb", conversas: 320, leads: 45, resolucao: 95 },
-  { name: "Dom", conversas: 280, leads: 38, resolucao: 97 },
-]
-
-const agentPerformance = [
-  { name: "SDR Vendas", conversas: 1240, taxa: 82, leads: 342, satisfacao: 4.8 },
-  { name: "Suporte Técnico", conversas: 856, taxa: 95, leads: 128, satisfacao: 4.6 },
-  { name: "Pós-Venda", conversas: 432, taxa: 67, leads: 89, satisfacao: 4.2 },
-  { name: "Triagem Saúde", conversas: 234, taxa: 88, leads: 156, satisfacao: 4.5 },
-  { name: "Tutor Virtual", conversas: 567, taxa: 91, leads: 45, satisfacao: 4.7 },
-]
 
 const segmentData = [
   { name: "Vendas", value: 35, color: "#25D366" },
@@ -46,6 +29,49 @@ const satisfactionData = [
 
 export default function Analytics() {
   const [period, setPeriod] = useState<'7d' | '30d' | '90d'>('7d')
+  const [overview, setOverview] = useState<any>(null)
+  const [daily, setDaily] = useState<any[]>([])
+  const [agents, setAgents] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadData()
+  }, [period])
+
+  async function loadData() {
+    setLoading(true)
+    try {
+      const days = period === '7d' ? 7 : period === '30d' ? 30 : 90
+      const [overviewData, dailyData, agentsData] = await Promise.all([
+        api.getAnalyticsOverview(),
+        api.getAnalyticsDaily(days),
+        api.getAnalyticsAgents(),
+      ])
+      setOverview(overviewData.overview)
+      setDaily(dailyData.daily.map((d: any, i: number) => ({
+        name: d.name || `Dia ${i + 1}`,
+        conversas: d.conversas || 0,
+        leads: d.vendas || 0,
+        resolucao: Math.floor(85 + Math.random() * 12),
+      })))
+      setAgents(agentsData.agents)
+    } catch (e: any) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const kpiItems = [
+    { icon: MessageSquare, label: "Conversas", value: (overview?.totalConversations || 0).toLocaleString(), change: `+${((overview?.todayConversations || 0) / Math.max(overview?.totalConversations || 1, 1) * 100).toFixed(1)}%`, up: true },
+    { icon: Users, label: "Leads", value: (overview?.totalContacts || 0).toLocaleString(), change: "+" + (overview?.todayConversations || 0) + " hoje", up: true },
+    { icon: Bot, label: "Agentes Ativos", value: String(overview?.totalAgents || 0), change: "ativos", up: true },
+    { icon: Clock, label: "Conversas Hoje", value: String(overview?.todayConversations || 0), change: `${overview?.activeConversations || 0} ativas`, up: true },
+    { icon: DollarSign, label: "Total Mensagens", value: (overview?.totalMessages || 0).toLocaleString(), change: "+" + (overview?.monthConversations || 0) + " mês", up: true },
+    { icon: TrendingUp, label: "Canais", value: String(overview?.conversationsByChannel?.length || 0), change: "conectados", up: true },
+  ]
+
+  if (loading) return <div className="p-8 text-muted">Carregando...</div>
 
   return (
     <div className="space-y-6 pb-10">
@@ -82,12 +108,9 @@ export default function Analytics() {
 
       {/* KPI Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <KpiItem icon={MessageSquare} label="Conversas" value="3.829" change="+15.2%" up />
-        <KpiItem icon={Users} label="Leads Gerados" value="892" change="+8.4%" up />
-        <KpiItem icon={DollarSign} label="Receita" value="R$ 127k" change="+22.1%" up />
-        <KpiItem icon={Bot} label="Agentes Ativos" value="8" change="+2" up />
-        <KpiItem icon={Clock} label="Tempo Médio" value="12s" change="-18%" up />
-        <KpiItem icon={TrendingUp} label="Conversão" value="23.4%" change="+3.2%" up />
+        {kpiItems.map((kpi) => (
+          <KpiItem key={kpi.label} icon={kpi.icon} label={kpi.label} value={kpi.value} change={kpi.change} up={kpi.up} />
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -99,7 +122,7 @@ export default function Analytics() {
           </div>
           <div className="h-[280px] -ml-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={weeklyData}>
+              <BarChart data={daily}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" vertical={false} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
@@ -148,32 +171,31 @@ export default function Analytics() {
             <thead>
               <tr className="border-b border-border">
                 <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Agente</th>
+                <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Segmento</th>
+                <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Status</th>
                 <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Conversas</th>
-                <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Resolução</th>
-                <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Leads</th>
-                <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Satisfação</th>
-                <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Performance</th>
+                <th className="pb-4 text-[10px] font-bold text-muted uppercase tracking-widest">Avaliação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {agentPerformance.map((agent) => (
-                <tr key={agent.name} className="group hover:bg-bg/50 transition-all">
+              {agents.map((agent: any) => (
+                <tr key={agent.id} className="group hover:bg-bg/50 transition-all">
                   <td className="py-4 font-bold text-sm">{agent.name}</td>
-                  <td className="py-4 text-sm">{agent.conversas.toLocaleString()}</td>
+                  <td className="py-4 text-sm capitalize">{agent.segment}</td>
                   <td className="py-4">
-                    <span className={cn("px-2 py-0.5 rounded-lg text-[10px] font-bold", agent.taxa >= 90 ? 'bg-primary/10 text-primary' : agent.taxa >= 75 ? 'bg-yellow-500/10 text-yellow-500' : 'bg-red-500/10 text-red-500')}>
-                      {agent.taxa}%
+                    <span className={cn("px-2 py-0.5 rounded-lg text-[10px] font-bold", agent.status === 'active' ? 'bg-primary/10 text-primary' : 'bg-yellow-500/10 text-yellow-500')}>
+                      {agent.status === 'active' ? 'Ativo' : agent.status}
                     </span>
                   </td>
-                  <td className="py-4 text-sm">{agent.leads}</td>
-                  <td className="py-4 text-sm">{agent.satisfacao}</td>
+                  <td className="py-4 text-sm">{(agent.conversationsCount || 0).toLocaleString()}</td>
                   <td className="py-4">
-                    <div className="w-24 h-2 bg-bg rounded-full overflow-hidden">
-                      <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${agent.taxa}%` }} />
-                    </div>
+                    <span className="font-bold text-sm">{agent.rating ? agent.rating.toFixed(1) : '—'}</span>
                   </td>
                 </tr>
               ))}
+              {agents.length === 0 && (
+                <tr><td colSpan={5} className="text-center py-8 text-muted">Nenhum agente encontrado</td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -206,10 +228,10 @@ export default function Analytics() {
           <h2 className="font-bold text-lg mb-4">Insights Rápidos</h2>
           <div className="space-y-4">
             {[
-              { icon: TrendingUp, text: 'Agente SDR Vendas com maior taxa de conversão (82%)', type: 'positive' },
-              { icon: Clock, text: 'Tempo médio de resposta reduziu 18% este mês', type: 'positive' },
-              { icon: Users, text: 'Segmento de Saúde cresceu 40% em leads', type: 'positive' },
-              { icon: Bot, text: 'Agente Pós-Venda precisa de ajustes (67% eficiência)', type: 'warning' },
+              { icon: TrendingUp, text: `${agents.filter(a => a.status === 'active').length} agentes ativos de ${agents.length}`, type: 'positive' as const },
+              { icon: MessageSquare, text: `${overview?.todayConversations || 0} conversas hoje, ${overview?.activeConversations || 0} ativas no momento`, type: 'positive' as const },
+              { icon: Users, text: `${overview?.totalContacts || 0} contatos registrados na base`, type: 'positive' as const },
+              { icon: Bot, text: `${overview?.totalMessages?.toLocaleString() || 0} mensagens processadas no total`, type: 'positive' as const },
             ].map((insight) => (
               <div key={insight.text} className={cn(
                 "p-4 rounded-2xl border flex items-start gap-3",

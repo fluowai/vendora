@@ -3,43 +3,43 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-const ROLES = {
-  admin: {
-    name: "admin",
-    permissions: [
-      { action: "tickets", subject: "read.all" },
-      { action: "tickets", subject: "write" },
-      { action: "tickets", subject: "assign" },
-      { action: "agents", subject: "manage" },
-      { action: "channels", subject: "manage" },
-      { action: "settings", subject: "read" },
-      { action: "settings", subject: "write" },
-      { action: "team", subject: "read" },
-      { action: "team", subject: "manage" },
-      { action: "reports", subject: "read" },
-    ],
-  },
-  supervisor: {
-    name: "supervisor",
-    permissions: [
-      { action: "tickets", subject: "read.team" },
-      { action: "tickets", subject: "write" },
-      { action: "tickets", subject: "assign" },
-      { action: "agents", subject: "read" },
-      { action: "channels", subject: "read" },
-      { action: "settings", subject: "read" },
-      { action: "team", subject: "read" },
-      { action: "reports", subject: "read" },
-    ],
-  },
-  agent: {
-    name: "agent",
-    permissions: [
-      { action: "tickets", subject: "read.assigned" },
-      { action: "tickets", subject: "write.assigned" },
-      { action: "agents", subject: "read" },
-    ],
-  },
+const ALL_PERMISSIONS = {
+  admin: [
+    { action: "tickets", subject: "read" },
+    { action: "tickets", subject: "manage" },
+    { action: "crm", subject: "read" },
+    { action: "crm", subject: "manage" },
+    { action: "ombudsman", subject: "read" },
+    { action: "ombudsman", subject: "manage" },
+    { action: "agents", subject: "manage" },
+    { action: "channels", subject: "manage" },
+    { action: "settings", subject: "read" },
+    { action: "settings", subject: "write" },
+    { action: "team", subject: "read" },
+    { action: "team", subject: "manage" },
+    { action: "reports", subject: "read" },
+  ],
+  supervisor: [
+    { action: "tickets", subject: "read" },
+    { action: "tickets", subject: "manage" },
+    { action: "crm", subject: "read" },
+    { action: "crm", subject: "manage" },
+    { action: "ombudsman", subject: "read" },
+    { action: "ombudsman", subject: "manage" },
+    { action: "agents", subject: "read" },
+    { action: "channels", subject: "read" },
+    { action: "settings", subject: "read" },
+    { action: "team", subject: "read" },
+    { action: "reports", subject: "read" },
+  ],
+  agent: [
+    { action: "tickets", subject: "read" },
+    { action: "tickets", subject: "manage" },
+    { action: "crm", subject: "read" },
+    { action: "ombudsman", subject: "read" },
+    { action: "agents", subject: "read" },
+    { action: "reports", subject: "read" },
+  ],
 };
 
 async function main() {
@@ -92,9 +92,19 @@ async function main() {
   }
 
   // ============= DEMO TENANT =============
-  const existing = await prisma.tenant.findUnique({ where: { slug: "vendaora" } });
+  let existing = await prisma.tenant.findUnique({ where: { slug: "vendaora" } });
   if (existing) {
-    console.log("  Demo tenant already exists, skipping.");
+    console.log("  Demo tenant exists. Updating roles with latest permissions...");
+    for (const [roleName, perms] of Object.entries(ALL_PERMISSIONS)) {
+      const role = await prisma.role.findFirst({ where: { tenantId: existing.id, name: roleName } });
+      if (role) {
+        await prisma.permission.deleteMany({ where: { roleId: role.id } });
+        await prisma.permission.createMany({
+          data: perms.map((p) => ({ roleId: role.id, action: p.action, subject: p.subject })),
+        });
+        console.log(`    Updated role: ${roleName}`);
+      }
+    }
   } else {
     const tenant = await prisma.tenant.create({
       data: {
@@ -108,13 +118,13 @@ async function main() {
 
     // ============= ROLES =============
     console.log("  Creating roles...");
-    for (const [key, roleDef] of Object.entries(ROLES)) {
+    for (const [roleName, perms] of Object.entries(ALL_PERMISSIONS)) {
       const role = await prisma.role.create({
         data: {
           tenantId: tenant.id,
-          name: roleDef.name,
+          name: roleName,
           permissions: {
-            create: roleDef.permissions,
+            create: perms,
           },
         },
       });

@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { cn } from "@/src/lib/utils";
 import { api } from "@/src/lib/api";
+import { useToast } from "@/src/components/Toast";
 
 export default function Dashboard() {
   const [overview, setOverview] = useState<any>(null);
@@ -14,14 +15,22 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<any[]>([]);
   const [trend, setTrend] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
+    let hasError = false;
     Promise.all([
-      api.getAnalyticsOverview().then(r => setOverview(r.overview)).catch(() => {}),
-      api.getAnalyticsDaily(7).then(r => setDaily(r.daily)).catch(() => {}),
-      api.getAnalyticsAgents().then(r => setAgents(r.agents)).catch(() => {}),
-      api.getConversationsTrend(24).then(r => setTrend(r.trend)).catch(() => {}),
-    ]).finally(() => setLoading(false));
+      api.getAnalyticsOverview().then(r => setOverview(r.overview)).catch((e) => { hasError = true; setApiError(e.message); return null; }),
+      api.getAnalyticsDaily(7).then(r => setDaily(r.daily)).catch((e) => { hasError = true; setApiError(e.message); return null; }),
+      api.getAnalyticsAgents().then(r => setAgents(r.agents)).catch((e) => { hasError = true; setApiError(e.message); return null; }),
+      api.getConversationsTrend(24).then(r => setTrend(r.trend)).catch((e) => { hasError = true; setApiError(e.message); return null; }),
+    ]).finally(() => {
+      setLoading(false);
+      if (hasError) {
+        toast("Alguns dados do dashboard não puderam ser carregados", "warning");
+      }
+    });
   }, []);
 
   if (loading) {

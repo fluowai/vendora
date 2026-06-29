@@ -6,6 +6,7 @@ import {
   Heart, BookOpen, Home, DollarSign, Users, ShoppingCart
 } from "lucide-react"
 import { api } from "@/src/lib/api"
+import { useToast } from "@/src/components/Toast"
 import { AgentCard } from "@/src/components/agents/AgentCard"
 import { AgentForm } from "@/src/components/builder/AgentForm"
 
@@ -29,6 +30,7 @@ const templates = [
 
 export default function Agents() {
   const navigate = useNavigate()
+  const { toast } = useToast()
   const [agents, setAgents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showBuilder, setShowBuilder] = useState(false)
@@ -56,7 +58,7 @@ export default function Agents() {
       setAgents((prev) => [...prev, res.agent])
       navigate(`/app/agents/${res.agent.id}`)
     } catch (e: any) {
-      alert(`Erro: ${e.message}`)
+      toast(`Erro: ${e.message}`, "error")
     }
   }
 
@@ -74,7 +76,7 @@ export default function Agents() {
       setShowBuilder(false)
       navigate(`/app/agents/${res.agent.id}`)
     } catch (e: any) {
-      alert(`Erro: ${e.message}`)
+      toast(`Erro: ${e.message}`, "error")
     }
   }
 

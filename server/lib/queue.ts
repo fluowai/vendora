@@ -1,5 +1,9 @@
 import { Queue, Worker, Job } from "bullmq";
 import { processIncomingMessage } from "./message-pipeline.ts";
+import { executeLLM } from "./providers.ts";
+import { emitToConversation } from "./socket.ts";
+import prisma from "./prisma.ts";
+import { incrementMessagesProcessed } from "./metrics.ts";
 
 const REDIS_URL = process.env.REDIS_URL || "";
 
@@ -17,6 +21,7 @@ const defaultJobOptions = {
 let messageQueue: Queue | null = null;
 let llmQueue: Queue | null = null;
 let outgoingQueue: Queue | null = null;
+const workers: Worker[] = [];
 
 function getQueues() {
   if (!REDIS_URL) return null;
@@ -78,7 +83,7 @@ export function setupWorkers() {
     return;
   }
 
-  new Worker("messages", async (job: Job) => {
+  const msgWorker = new Worker("messages", async (job: Job) => {
     console.log(`[Queue] Processing message job: ${job.id} (${job.data.type})`);
     if (job.data.type === "incoming") {
       return processIncomingMessage({
@@ -89,16 +94,92 @@ export function setupWorkers() {
     }
     return { processed: true, jobId: job.id };
   }, { connection, concurrency: 5 });
+  workers.push(msgWorker);
 
-  new Worker("llm", async (job: Job) => {
+  const llmWorker = new Worker("llm", async (job: Job) => {
     console.log(`[Queue] Processing LLM job: ${job.id}`);
-    return { processed: true, jobId: job.id };
-  }, { connection, concurrency: 3 });
+    const { agentId, conversationId, content } = job.data;
+    if (!agentId || !conversationId || !content) {
+      throw new Error("Dados insuficientes para execucao LLM");
+    }
 
-  new Worker("outgoing", async (job: Job) => {
+    const agent = await prisma.aiAgent.findUnique({ where: { id: agentId } });
+    if (!agent) throw new Error("Agente nao encontrado");
+
+    const providerConfig = {
+      provider: agent.modelProvider as any,
+      model: agent.modelName,
+      temperature: agent.temperature ?? 0.7,
+      systemPrompt: agent.basePrompt,
+    };
+
+    const result = await executeLLM(providerConfig, content);
+    incrementMessagesProcessed();
+
+    const answer = await prisma.message.create({
+      data: {
+        tenantId: job.data.tenantId,
+        conversationId,
+        senderType: "agent",
+        senderId: agentId,
+        channel: "whatsapp",
+        messageType: "text",
+        content: result.text,
+        sentAt: new Date(),
+      },
+    });
+
+    emitToConversation(conversationId, "message:new", {
+      conversationId,
+      message: answer,
+    });
+
+    return { processed: true, jobId: job.id, messageId: answer.id };
+  }, { connection, concurrency: 3 });
+  workers.push(llmWorker);
+
+  const outgoingWorker = new Worker("outgoing", async (job: Job) => {
     console.log(`[Queue] Processing outgoing job: ${job.id}`);
+    const { conversationId, content, channel } = job.data;
+
+    if (channel === "whatsmeow") {
+      const bridgeUrl = (process.env.WHATSMEOW_BRIDGE_URL || "").replace(/\/$/, "");
+      if (!bridgeUrl) throw new Error("WHATSMEOW_BRIDGE_URL nao configurado");
+
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: { contact: { include: { identities: true } } },
+      });
+      if (!conversation) throw new Error("Conversa nao encontrada");
+
+      const remoteJid = conversation.contact?.phone;
+      if (!remoteJid) throw new Error("Destino nao encontrado");
+
+      const response = await fetch(`${bridgeUrl}/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
+        },
+        body: JSON.stringify({ to: remoteJid, text: content, conversationId }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error((data as any).error || `Falha ao enviar: ${response.status}`);
+      }
+    }
+
     return { processed: true, jobId: job.id };
   }, { connection, concurrency: 5 });
+  workers.push(outgoingWorker);
 
   console.log("[Queue] Workers initialized");
+}
+
+export async function shutdownQueues() {
+  await Promise.all(workers.map((w) => w.close()));
+  if (messageQueue) await messageQueue.close();
+  if (llmQueue) await llmQueue.close();
+  if (outgoingQueue) await outgoingQueue.close();
 }

@@ -2,16 +2,41 @@ import {
   ShieldAlert, Plus, Search, Filter, Clock, CheckCircle2, 
   AlertTriangle, MessageSquare, Tag, FileText, ChevronRight 
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/src/lib/utils";
+import { api } from "@/src/lib/api";
 
-const mockProtocols = [
-  { id: 'OUV-2026-001', name: 'Felipe Amorim', type: 'Reclamação', category: 'Atendimento', status: 'Em Apuração', priority: 'high', date: 'Hoje, 10:30', sla: 'Vence em 2h', avatar: 'F' },
-  { id: 'OUV-2026-002', name: 'Ana Costa', type: 'Denúncia', category: 'Conduta', status: 'Nova', priority: 'urgent', date: 'Ontem', sla: 'Vencido', avatar: 'A' },
-  { id: 'OUV-2026-003', name: 'Anônimo', type: 'Sugestão', category: 'Produto', status: 'Encerrado', priority: 'low', date: 'Há 3 dias', sla: '-', avatar: '?' },
-];
+const statusLabels: Record<string, string> = {
+  nova: "Nova",
+  em_apuracao: "Em Apuração",
+  aguardando_resposta: "Aguardando Resposta",
+  encaminhado: "Encaminhado",
+  encerrado: "Encerrado",
+};
 
 export default function Ombudsman() {
+  const [cases, setCases] = useState<any[]>([]);
+  const [stats, setStats] = useState({ totalAbertos: 0, slaVencido: 0, urgentes: 0, resolvidosMes: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadCases();
+  }, []);
+
+  async function loadCases() {
+    try {
+      const data = await api.getOmbudsmanCases();
+      setCases(data.cases);
+      setStats(data.stats);
+    } catch (e: any) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) return <div className="p-8 text-muted">Carregando...</div>;
+
   return (
     <div className="h-full flex flex-col space-y-6">
       {/* Header */}
@@ -38,19 +63,19 @@ export default function Ombudsman() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 lg:p-6 rounded-2xl border border-border shadow-sm flex flex-col">
           <span className="text-xs font-bold text-muted uppercase tracking-widest mb-2 flex items-center gap-1"><FileText className="w-3 h-3"/> Total Abertos</span>
-          <span className="text-3xl font-display font-bold text-text">12</span>
+          <span className="text-3xl font-display font-bold text-text">{stats.totalAbertos}</span>
         </div>
         <div className="bg-[#FFF4F2] p-4 lg:p-6 rounded-2xl border border-red-100 shadow-sm flex flex-col">
           <span className="text-xs font-bold text-red-500 uppercase tracking-widest mb-2 flex items-center gap-1"><Clock className="w-3 h-3"/> SLA Vencido</span>
-          <span className="text-3xl font-display font-bold text-red-600">3</span>
+          <span className="text-3xl font-display font-bold text-red-600">{stats.slaVencido}</span>
         </div>
         <div className="bg-[#FEF9C3] p-4 lg:p-6 rounded-2xl border border-yellow-200 shadow-sm flex flex-col">
           <span className="text-xs font-bold text-yellow-600 uppercase tracking-widest mb-2 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Urgentes</span>
-          <span className="text-3xl font-display font-bold text-yellow-700">5</span>
+          <span className="text-3xl font-display font-bold text-yellow-700">{stats.urgentes}</span>
         </div>
         <div className="bg-[#E8F6F0] p-4 lg:p-6 rounded-2xl border border-[#25D366]/20 shadow-sm flex flex-col">
           <span className="text-xs font-bold text-[#25D366] uppercase tracking-widest mb-2 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> Resolvidos (Mês)</span>
-          <span className="text-3xl font-display font-bold text-[#128C7E]">48</span>
+          <span className="text-3xl font-display font-bold text-[#128C7E]">{stats.resolvidosMes}</span>
         </div>
       </div>
 
@@ -69,18 +94,18 @@ export default function Ombudsman() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {mockProtocols.map(p => (
+              {cases.map((p: any) => (
                 <tr key={p.id} className="hover:bg-bg/50 transition-colors group cursor-pointer">
                   <td className="px-6 py-4">
-                    <span className="font-bold text-sm">{p.id}</span>
-                    <p className="text-[10px] text-muted">{p.date}</p>
+                    <span className="font-bold text-sm">{p.protocolNumber}</span>
+                    <p className="text-[10px] text-muted">{new Date(p.createdAt).toLocaleDateString()}</p>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-bg border border-border flex items-center justify-center font-bold text-muted text-xs">
-                        {p.avatar}
+                        {p.anonymous ? '?' : (p.contact?.name?.charAt(0) || '?')}
                       </div>
-                      <span className="font-bold text-sm">{p.name}</span>
+                      <span className="font-bold text-sm">{p.anonymous ? 'Anônimo' : (p.contact?.name || '—')}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -90,19 +115,17 @@ export default function Ombudsman() {
                   <td className="px-6 py-4">
                     <span className={cn(
                       "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border",
-                      p.status === 'Encerrado' ? 'bg-bg text-muted border-border' : 'bg-primary/10 text-primary border-primary/20'
+                      p.status === 'encerrado' ? 'bg-bg text-muted border-border' : 'bg-primary/10 text-primary border-primary/20'
                     )}>
-                      {p.status}
+                      {statusLabels[p.status] || p.status}
                     </span>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-1.5">
-                      {p.sla === 'Vencido' ? (
+                      {p.slaDueAt && new Date(p.slaDueAt) < new Date() && p.status !== 'encerrado' ? (
                         <span className="text-xs font-bold text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Vencido</span>
-                      ) : p.sla === '-' ? (
-                        <span className="text-xs font-bold text-muted">-</span>
                       ) : (
-                        <span className="text-xs font-bold text-muted flex items-center gap-1"><Clock className="w-3 h-3"/> {p.sla}</span>
+                        <span className="text-xs font-bold text-muted">—</span>
                       )}
                     </div>
                   </td>
@@ -113,6 +136,9 @@ export default function Ombudsman() {
                   </td>
                 </tr>
               ))}
+              {cases.length === 0 && (
+                <tr><td colSpan={6} className="text-center py-8 text-muted">Nenhum caso encontrado</td></tr>
+              )}
             </tbody>
           </table>
         </div>

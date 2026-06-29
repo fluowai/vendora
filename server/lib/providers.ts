@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { LLMConfig, LLMProvider } from "../../src/types/index.ts";
+import { incrementLlmCalls } from "./metrics.ts";
 
 interface LLMResponse {
   text: string
@@ -7,6 +8,7 @@ interface LLMResponse {
 }
 
 export async function executeLLM(config: LLMConfig, prompt: string, context?: string): Promise<LLMResponse> {
+  incrementLlmCalls(config.provider);
   switch (config.provider) {
     case 'gemini':
       return executeGemini(config, prompt, context)
