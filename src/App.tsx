@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import { Loader2 } from "lucide-react";
 import AppLayout from "./components/AppLayout";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
@@ -20,6 +21,7 @@ const Ombudsman = lazy(() => import("./pages/Ombudsman"));
 const Automations = lazy(() => import("./pages/Automations"));
 const Connections = lazy(() => import("./pages/Connections"));
 const CalendarPage = lazy(() => import("./pages/Calendar"));
+const CallsPage = lazy(() => import("./pages/Calls"));
 const SuperAdminLayout = lazy(() => import("./pages/superadmin/SuperAdminLayout"));
 const SuperAdminDashboard = lazy(() => import("./pages/superadmin/SuperAdminDashboard"));
 const SuperAdminTenants = lazy(() => import("./pages/superadmin/SuperAdminTenants"));
@@ -38,6 +40,7 @@ function PageLoader() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ErrorBoundary>
       <Routes>
         <Route path="/" element={<Suspense fallback={<PageLoader />}><LandingPage /></Suspense>} />
         <Route path="/auth" element={<Suspense fallback={<PageLoader />}><AuthPage /></Suspense>} />
@@ -69,8 +72,10 @@ export default function App() {
           <Route path="analytics" element={<Suspense fallback={<PageLoader />}><Analytics /></Suspense>} />
           <Route path="plans" element={<Suspense fallback={<PageLoader />}><Plans /></Suspense>} />
           <Route path="campaigns" element={<Suspense fallback={<PageLoader />}><Campaigns /></Suspense>} />
+          <Route path="calls" element={<Suspense fallback={<PageLoader />}><CallsPage /></Suspense>} />
         </Route>
       </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

@@ -71,12 +71,13 @@ export const api = {
     request<{ finalResponse: string; steps: any[] }>(`/agents/workflows/${id}/execute`, { method: 'POST', body: JSON.stringify({ input, context }) }),
 
   // Conversations
-  getConversations: (params?: { status?: string; search?: string; channel?: string; scope?: string }) => {
+  getConversations: (params?: { status?: string; search?: string; channel?: string; scope?: string; chatType?: string }) => {
     const qs = new URLSearchParams()
     if (params?.status) qs.set('status', params.status)
     if (params?.search) qs.set('search', params.search)
     if (params?.channel) qs.set('channel', params.channel)
     if (params?.scope) qs.set('scope', params.scope)
+    if (params?.chatType) qs.set('chatType', params.chatType)
     const suffix = qs.toString() ? `?${qs}` : ''
     return request<{ conversations: any[] }>(`/conversations${suffix}`)
   },
@@ -129,6 +130,7 @@ export const api = {
   }),
   getWhatsmeowInstanceStatus: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/status`),
   getWhatsmeowInstanceQr: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/qr`),
+  logoutWhatsmeowInstance: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/logout`, { method: 'POST' }),
 
   // Analytics
   getAnalyticsOverview: () => request<{ overview: any }>('/analytics/overview'),

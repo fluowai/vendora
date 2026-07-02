@@ -9,6 +9,7 @@ const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey && supabaseServic
 function createSupabaseClients() {
   if (!isSupabaseConfigured) {
     console.warn("⚠️  Supabase não configurado. Defina SUPABASE_URL, SUPABASE_ANON_KEY e SUPABASE_SERVICE_ROLE_KEY no .env");
+    // Note: this warn intentionally uses console.warn for visibility during startup
     return { supabase: null, supabaseAdmin: null };
   }
   return {

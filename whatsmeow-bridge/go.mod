@@ -3,7 +3,7 @@ module vendaora/whatsmeow-bridge
 go 1.25.0
 
 require (
-	go.mau.fi/whatsmeow v0.0.0-20260616120636-eaa388b4e537
+	go.mau.fi/whatsmeow v0.0.0-20260630180629-b572e5bcb92b
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.52.0
 )

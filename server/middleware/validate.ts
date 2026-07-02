@@ -59,7 +59,10 @@ export const schemas = {
 
   register: z.object({
     email: z.string().email("Email inválido"),
-    password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
+    password: z.string()
+      .min(8, "Senha deve ter no mínimo 8 caracteres")
+      .regex(/[A-Z]/, "Senha deve conter pelo menos uma letra maiúscula")
+      .regex(/[0-9]/, "Senha deve conter pelo menos um número"),
     name: z.string().min(2).max(100),
     company: z.string().max(100).optional(),
   }),
@@ -99,7 +102,7 @@ export const schemas = {
   }),
 
   createConnection: z.object({
-    provider: z.enum(["whatsmeow", "chatwoot", "whatsapp_cloud", "instagram", "web"]),
+    provider: z.enum(["whatsmeow", "chatwoot", "whatsapp_cloud", "instagram", "web", "email"]),
     name: z.string().min(1).max(100),
     config: z.any().optional(),
   }),

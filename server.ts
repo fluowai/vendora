@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import { createServer as createViteServer } from "vite";
 import { createServer as createHttpServer } from "http";
 import dotenv from "dotenv";
@@ -25,6 +26,12 @@ import ticketsRoutes from "./server/routes/tickets.ts";
 import crmRoutes from "./server/routes/crm.ts";
 import ombudsmanRoutes from "./server/routes/ombudsman.ts";
 import uploadRoutes from "./server/routes/upload.ts";
+import callsRoutes from "./server/routes/calls.ts";
+import { getWaCallsBridge } from "./server/lib/wacalls-sse.ts";
+import { ensureWaCallsBuilt, startEmbeddedWaCalls } from "./server/lib/wacalls-process.ts";
+import { initSentry } from "./server/lib/sentry.ts";
+
+let wacallsProcess: import("child_process").ChildProcess | null = null;
 
 dotenv.config();
 
@@ -33,15 +40,44 @@ const PORT = parseInt(process.env.PORT || "3333", 10);
 const FRONTEND_URL = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:5173";
 const NODE_ENV = process.env.NODE_ENV || "development";
 
-// Validate JWT_SECRET sempre (dev e production)
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret || jwtSecret === "change-this-to-a-random-secret-in-production") {
-  console.error("FATAL: JWT_SECRET não configurado. Defina um secret forte.");
-  process.exit(1);
+// ==========================================
+// Validação de env vars no startup
+// ==========================================
+function requireEnv(name: string, opts?: { allowDefault?: boolean }): string {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`FATAL: ${name} não configurado. Defina no .env ou variável de ambiente.`);
+    process.exit(1);
+  }
+  if (!opts?.allowDefault && value.startsWith("change-this-")) {
+    console.error(`FATAL: ${name} está com valor padrão inseguro. Gere um secret forte.`);
+    process.exit(1);
+  }
+  return value;
 }
-if (!process.env.JWT_REFRESH_SECRET || process.env.JWT_REFRESH_SECRET === "change-this-to-another-random-secret") {
-  console.error("FATAL: JWT_REFRESH_SECRET não configurado.");
-  process.exit(1);
+
+const jwtSecret = requireEnv("JWT_SECRET");
+requireEnv("JWT_REFRESH_SECRET");
+
+initSentry();
+
+if (NODE_ENV === "production") {
+  requireEnv("DATABASE_URL");
+  requireEnv("REDIS_URL");
+}
+
+if (process.env.WHATSMEOW_BRIDGE_URL) {
+  const secret = process.env.WHATSMEOW_BRIDGE_SECRET;
+  if (!secret) {
+    console.warn("[WARN] WHATSMEOW_BRIDGE_URL configurado mas WHATSMEOW_BRIDGE_SECRET não — bridge sem autenticação");
+  }
+}
+
+const aiKeys = [
+  "GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GROQ_API_KEY",
+].filter((k) => process.env[k]);
+if (aiKeys.length === 0) {
+  console.warn("[WARN] Nenhuma chave de AI configurada. Agentes baseados em LLM não funcionarão.");
 }
 
 app.set("trust proxy", 1);
@@ -53,21 +89,31 @@ app.use(requestIdMiddleware);
 app.use(trackHttpRequest);
 
 // Security headers
+const CSP_DIRECTIVES: Record<string, string[]> = NODE_ENV === "production" ? {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'"],
+  styleSrc: ["'self'", "https://fonts.googleapis.com"],
+  imgSrc: ["'self'", "data:", "blob:", "https:"],
+  fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+  connectSrc: ["'self'", "ws:", "wss:"],
+  frameSrc: ["'none'"],
+  objectSrc: ["'none'"],
+  upgradeInsecureRequests: [],
+} : {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+  styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+  imgSrc: ["'self'", "data:", "blob:", "https:"],
+  fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+  connectSrc: ["'self'", "ws:", "wss:", "https:", "http:"],
+  frameSrc: ["'none'"],
+  objectSrc: ["'none'"],
+};
+
 app.use(helmet({
   strictTransportSecurity: { maxAge: 31536000, includeSubDomains: true, preload: true },
   crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      imgSrc: ["'self'", "data:", "blob:", "https:"],
-      fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
-      connectSrc: ["'self'", "ws:", "wss:", "https:", "http:"],
-      frameSrc: ["'none'"],
-      objectSrc: ["'none'"],
-    },
-  },
+  contentSecurityPolicy: { directives: CSP_DIRECTIVES },
 }));
 
 // CORS
@@ -79,6 +125,8 @@ app.use(cors({
   origin: allowedOrigins,
   credentials: true,
 }));
+
+app.use(compression({ level: 6, threshold: 1024 }));
 
 app.use(express.json({ limit: "50mb" }));
 
@@ -141,6 +189,7 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/tickets", ticketsRoutes);
 app.use("/api/crm", crmRoutes);
 app.use("/api/ombudsman", ombudsmanRoutes);
+app.use("/api/calls", callsRoutes);
 
 // Global error handler (must be after routes)
 app.use(errorHandler);
@@ -156,6 +205,9 @@ async function setupVite(server: any) {
       appType: "spa",
     });
     app.use(vite.middlewares);
+    app.get("*", (_req, res) => {
+      res.sendFile(path.join(process.cwd(), "index.html"));
+    });
   } else {
     const distPath = path.join(process.cwd(), "dist", "assets");
     app.use("/assets", express.static(distPath));
@@ -179,12 +231,37 @@ if (process.env.REDIS_URL) {
   console.log("[Vendaora 360] Redis not configured, queue workers disabled");
 }
 
-httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`[Vendaora 360] Server running on http://localhost:${PORT}`);
-  console.log(`[Vendaora 360] Multi-Agent engine ready`);
-});
+// Start everything
+async function start() {
+  await setupVite(httpServer);
 
-setupVite(httpServer);
+  httpServer.listen(PORT, "0.0.0.0", async () => {
+    console.log(`[Vendaora 360] Server running on http://localhost:${PORT}`);
+    console.log(`[Vendaora 360] Multi-Agent engine ready`);
+
+    if (process.env.WACALLS_URL) {
+      getWaCallsBridge().start();
+      console.log(`[Vendaora 360] WaCalls SSE bridge started -> ${process.env.WACALLS_URL}`);
+    } else {
+      console.log(`[Vendaora 360] WACALLS_URL not set. Attempting embedded WaCalls...`);
+      try {
+        wacallsProcess = await startEmbeddedWaCalls();
+        if (wacallsProcess) {
+          getWaCallsBridge().start();
+          console.log(`[Vendaora 360] WaCalls SSE bridge started -> ${process.env.WACALLS_URL}`);
+        }
+      } catch (err: any) {
+        console.log(`[Vendaora 360] Embedded WaCalls not available: ${err.message}`);
+        console.log(`[Vendaora 360] Set WACALLS_URL or install Go 1.26+ to enable calls`);
+      }
+    }
+  });
+}
+
+start().catch((err) => {
+  console.error("[Vendaora 360] Startup failed:", err);
+  process.exit(1);
+});
 
 // Graceful shutdown
 async function gracefulShutdown(signal: string) {
@@ -205,6 +282,22 @@ async function gracefulShutdown(signal: string) {
       console.log("[Vendaora 360] WebSocket server closed");
     } catch (e) {
       console.error("[Vendaora 360] WebSocket close error:", e);
+    }
+
+    try {
+      getWaCallsBridge().stop();
+      console.log("[Vendaora 360] WaCalls SSE bridge stopped");
+    } catch (e) {
+      console.error("[Vendaora 360] WaCalls bridge stop error:", e);
+    }
+
+    if (wacallsProcess) {
+      try {
+        wacallsProcess.kill("SIGTERM");
+        console.log("[Vendaora 360] Embedded WaCalls server stopped");
+      } catch (e) {
+        console.error("[Vendaora 360] WaCalls process kill error:", e);
+      }
     }
 
     try {

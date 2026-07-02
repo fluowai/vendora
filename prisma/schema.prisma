@@ -3,16 +3,10 @@ generator client {
 }
 
 datasource db {
-  // Dev:    provider = "sqlite"     (DATABASE_URL="file:./dev.db")
-  // Prod:   provider = "postgresql"  (DATABASE_URL="postgresql://...")
-  //
-  // Para migrar para Supabase/PostgreSQL:
-  //   1. Comente a linha provider = "sqlite"
-  //   2. Descomente a linha provider = "postgresql"
-  //   3. Execute: npx prisma migrate deploy
-  //   4. Execute: npm run db:seed
-  provider = "sqlite"
-  // provider = "postgresql"
+  // Dev:   provider = "sqlite"     DATABASE_URL="file:./dev.db"
+  // Prod:  provider = "postgresql"  DATABASE_URL="postgresql://..."
+  // O Dockerfile substitui sqlite por postgresql automaticamente no build
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -64,6 +58,10 @@ model Tenant {
   calendars         Calendar[]
   appointments      Appointment[]
   auditLogs         AuditLog[]
+
+  @@index([slug])
+  @@index([planId])
+  @@index([status])
 }
 
 model User {
@@ -86,7 +84,11 @@ model User {
   tickets       Ticket[]       @relation("AssignedUser")
   ombudsmanCases OmbudsmanCase[] @relation("AssignedUser")
   appointments  Appointment[]  @relation("AppointmentAssignedUser")
+  refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+
+  @@index([tenantId])
+  @@index([email])
 }
 
 model Role {
@@ -173,6 +175,10 @@ model Contact {
   tickets       Ticket[]
   ombudsmanCases OmbudsmanCase[]
   appointments  Appointment[]
+
+  @@index([tenantId])
+  @@index([phone])
+  @@index([email])
 }
 
 model ContactIdentity {
@@ -217,6 +223,11 @@ model Conversation {
   tickets           Ticket[]
   ombudsmanCases    OmbudsmanCase[]
   appointments      Appointment[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, assignedUserId])
+  @@index([contactId])
+  @@index([lastMessageAt])
 }
 
 model Message {
@@ -238,6 +249,10 @@ model Message {
   deliveredAt       DateTime?
   readAt            DateTime?
   createdAt         DateTime @default(now())
+
+  @@index([conversationId, sentAt])
+  @@index([tenantId])
+  @@index([senderType])
 }
 
 model Funnel {
@@ -361,6 +376,9 @@ model AiAgent {
   updatedAt       DateTime @updatedAt
 
   appointments    Appointment[]
+
+  @@index([tenantId, enabled, status])
+  @@index([segment])
 }
 
 model Calendar {
@@ -434,6 +452,20 @@ model Document {
   createdAt       DateTime     @default(now())
 }
 
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String @unique
+  family    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@index([family])
+}
+
 model AuditLog {
   id          String   @id @default(uuid())
   tenantId    String
@@ -447,4 +479,25 @@ model AuditLog {
   userAgent   String?
   metadata    Json?
   createdAt   DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([action])
+  @@index([entityType, entityId])
+}
+
+model WaCallRecord {
+  id        String   @id @default(uuid())
+  sessionId String
+  callId    String   @unique
+  owner     String?
+  direction String
+  peer      String
+  status    String
+  startedAt DateTime
+  endedAt   DateTime?
+  endReason String?
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([startedAt])
 }

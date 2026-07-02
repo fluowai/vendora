@@ -2,6 +2,7 @@ import { Queue, Worker, Job } from "bullmq";
 import { processIncomingMessage } from "./message-pipeline.ts";
 import { executeLLM } from "./providers.ts";
 import { emitToConversation } from "./socket.ts";
+import { logger } from "./logger.ts";
 import prisma from "./prisma.ts";
 import { incrementMessagesProcessed } from "./metrics.ts";
 
@@ -79,12 +80,12 @@ export async function addMessageJob(data: {
 
 export function setupWorkers() {
   if (!REDIS_URL) {
-    console.log("[Queue] Redis not configured, workers disabled");
+    logger.info("[Queue] Redis not configured, workers disabled");
     return;
   }
 
   const msgWorker = new Worker("messages", async (job: Job) => {
-    console.log(`[Queue] Processing message job: ${job.id} (${job.data.type})`);
+    logger.info(`[Queue] Processing message job: ${job.id} (${job.data.type})`);
     if (job.data.type === "incoming") {
       return processIncomingMessage({
         tenantId: job.data.tenantId,
@@ -97,7 +98,7 @@ export function setupWorkers() {
   workers.push(msgWorker);
 
   const llmWorker = new Worker("llm", async (job: Job) => {
-    console.log(`[Queue] Processing LLM job: ${job.id}`);
+    logger.info(`[Queue] Processing LLM job: ${job.id}`);
     const { agentId, conversationId, content } = job.data;
     if (!agentId || !conversationId || !content) {
       throw new Error("Dados insuficientes para execucao LLM");
@@ -139,8 +140,24 @@ export function setupWorkers() {
   workers.push(llmWorker);
 
   const outgoingWorker = new Worker("outgoing", async (job: Job) => {
-    console.log(`[Queue] Processing outgoing job: ${job.id}`);
-    const { conversationId, content, channel } = job.data;
+    logger.info(`[Queue] Processing outgoing job: ${job.id}`);
+    const { conversationId, content, channel, mediaUrl, mediaType, caption } = job.data;
+
+    const getBridgeHeaders = () => ({
+      "Content-Type": "application/json",
+      ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
+    } as Record<string, string>);
+
+    const getRemoteJid = (conv: any) => {
+      const messageWithRemote = conv.messages
+        ?.slice()
+        .reverse()
+        .find((message: any) => message.metadata?.remoteJid || message.metadata?.chatJid);
+      return messageWithRemote?.metadata?.remoteJid
+        || messageWithRemote?.metadata?.chatJid
+        || conv.contact?.identities?.find((i: any) => i.provider === "whatsmeow")?.externalId
+        || conv.contact?.phone;
+    };
 
     if (channel === "whatsmeow") {
       const bridgeUrl = (process.env.WHATSMEOW_BRIDGE_URL || "").replace(/\/$/, "");
@@ -148,20 +165,28 @@ export function setupWorkers() {
 
       const conversation = await prisma.conversation.findUnique({
         where: { id: conversationId },
-        include: { contact: { include: { identities: true } } },
+        include: {
+          contact: { include: { identities: true } },
+          messages: { orderBy: { sentAt: "asc" }, take: 30 },
+        },
       });
       if (!conversation) throw new Error("Conversa nao encontrada");
 
-      const remoteJid = conversation.contact?.phone;
+      const remoteJid = getRemoteJid(conversation);
       if (!remoteJid) throw new Error("Destino nao encontrado");
 
-      const response = await fetch(`${bridgeUrl}/send`, {
+      let endpoint = "/send";
+      let body: any = { to: remoteJid, text: content, conversationId };
+
+      if (mediaUrl) {
+        endpoint = "/send/media";
+        body = { to: remoteJid, mediaUrl, mediaType: mediaType || "image", caption: caption || content, fileName: job.data.fileName, conversationId };
+      }
+
+      const response = await fetch(`${bridgeUrl}${endpoint}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
-        },
-        body: JSON.stringify({ to: remoteJid, text: content, conversationId }),
+        headers: getBridgeHeaders(),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -174,7 +199,7 @@ export function setupWorkers() {
   }, { connection, concurrency: 5 });
   workers.push(outgoingWorker);
 
-  console.log("[Queue] Workers initialized");
+  logger.info("[Queue] Workers initialized");
 }
 
 export async function shutdownQueues() {

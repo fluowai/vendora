@@ -21,7 +21,8 @@ import {
   Sparkles,
   Shield,
   Plug,
-  CalendarDays
+  CalendarDays,
+  Phone
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
@@ -37,6 +38,7 @@ const navTop = [
   { icon: ShieldAlert, label: "Ouvidoria 360", href: "ombudsman" },
   { icon: Bot, label: "Agentes IA", href: "agents" },
   { icon: CalendarDays, label: "Agenda", href: "calendar" },
+  { icon: Phone, label: "Chamadas", href: "calls" },
   { icon: Zap, label: "Automações", href: "automations" },
   { icon: Megaphone, label: "Campanhas", href: "campaigns" },
   { icon: Sparkles, label: "Marketplace", href: "marketplace" },

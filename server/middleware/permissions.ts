@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import prisma from "../lib/prisma.ts";
+import { logger } from "../lib/logger.ts";
 
 const PERMISSION_CACHE_TTL = 30_000;
 const permissionCache = new Map<string, { permissions: string[]; expiresAt: number }>();
@@ -38,7 +39,7 @@ function requirePermission(action: string, subject: string) {
       }
       next();
     } catch (error) {
-      console.error("Permission check error:", error);
+      logger.error("Permission check error", { error });
       res.status(500).json({ error: "Erro ao verificar permissões" });
     }
   };

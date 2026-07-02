@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import prisma from "../lib/prisma.ts";
 import { superadminAuth } from "../middleware/auth.ts";
+import { logger } from "../lib/logger.ts";
 
 const router = Router();
 
@@ -38,7 +39,7 @@ router.get("/stats", async (_req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error("Superadmin stats error:", error);
+    logger.error("Superadmin stats error", { error });
     res.status(500).json({ error: "Erro ao buscar estatísticas" });
   }
 });
@@ -133,7 +134,7 @@ router.get("/tenants", async (req: Request, res: Response) => {
       pagination: { page: parseInt(page as string), limit: take, total, totalPages: Math.ceil(total / take) },
     });
   } catch (error: any) {
-    console.error("Superadmin tenants error:", error);
+    logger.error("Superadmin tenants error", { error });
     res.status(500).json({ error: "Erro ao buscar tenants" });
   }
 });

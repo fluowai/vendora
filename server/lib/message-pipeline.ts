@@ -47,6 +47,40 @@ function fallbackAgentResponse(input: {
   return `Recebi sua mensagem. ${input.agentName ? `${input.agentName} vai continuar esse atendimento.` : "Vou continuar esse atendimento."}`;
 }
 
+function getBridgeHeaders() {
+  return {
+    "Content-Type": "application/json",
+    ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
+  } as Record<string, string>;
+}
+
+function getRemoteJid(conversation: any): string | null {
+  const messageWithRemote = conversation.messages
+    ?.slice()
+    .reverse()
+    .find((message: any) => message.metadata?.remoteJid || message.metadata?.chatJid);
+  return messageWithRemote?.metadata?.remoteJid
+    || messageWithRemote?.metadata?.chatJid
+    || conversation.contact?.identities?.find((identity: any) => identity.provider === "whatsmeow")?.externalId
+    || conversation.contact?.phone
+    || null;
+}
+
+async function sendTypingIndicator(remoteJid: string, state: string) {
+  const bridgeUrl = getWhatsmeowBridgeUrl();
+  if (!bridgeUrl) return;
+
+  try {
+    await fetch(`${bridgeUrl}/typing`, {
+      method: "POST",
+      headers: getBridgeHeaders(),
+      body: JSON.stringify({ to: remoteJid, state }),
+      signal: AbortSignal.timeout(3000),
+    });
+  } catch {
+  }
+}
+
 async function sendViaChannel(conversation: any, content: string) {
   if (conversation.channel !== "whatsmeow") {
     return { skipped: true, reason: "Canal sem envio externo configurado" };
@@ -57,19 +91,14 @@ async function sendViaChannel(conversation: any, content: string) {
     return { skipped: true, reason: "WHATSMEOW_BRIDGE_URL nao configurado" };
   }
 
-  const remoteJid = conversation.messages?.[0]?.metadata?.remoteJid
-    || conversation.contact?.identities?.find((identity: any) => identity.provider === "whatsmeow")?.externalId
-    || conversation.contact?.phone;
+  const remoteJid = getRemoteJid(conversation);
   if (!remoteJid) {
     return { skipped: true, reason: "Destino WhatsApp nao encontrado" };
   }
 
   const response = await fetch(`${bridgeUrl}/send`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
-    },
+    headers: getBridgeHeaders(),
     body: JSON.stringify({
       to: remoteJid,
       text: content,
@@ -109,6 +138,11 @@ export async function processIncomingMessage(input: {
     : conversation.messages.filter((message) => message.senderType === "contact").at(-1);
   if (!incoming || incoming.senderType !== "contact" || !incoming.content) {
     return { skipped: true, reason: "Mensagem de entrada nao encontrada" };
+  }
+
+  const remoteJid = getRemoteJid(conversation);
+  if (remoteJid && conversation.channel === "whatsmeow") {
+    void sendTypingIndicator(remoteJid, "typing");
   }
 
   const route = await routeMessage(input.tenantId, incoming.content, conversation.id);
@@ -211,6 +245,9 @@ export async function processIncomingMessage(input: {
   let delivery = null;
   try {
     delivery = await sendViaChannel(conversation, responseText);
+    if (remoteJid && conversation.channel === "whatsmeow") {
+      void sendTypingIndicator(remoteJid, "paused");
+    }
   } catch (error: any) {
     delivery = { error: error.message || "Falha ao enviar resposta" };
   }

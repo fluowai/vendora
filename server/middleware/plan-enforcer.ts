@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import prisma from "../lib/prisma.ts";
+import { logger } from "../lib/logger.ts";
 
 const PLAN_LIMITS: Record<string, { maxAgents: number; maxConversations: number; maxChannels: number; maxUsers: number }> = {
   free: { maxAgents: 1, maxConversations: 500, maxChannels: 1, maxUsers: 1 },
@@ -71,7 +72,7 @@ export function checkPlanLimit(resource: ResourceType) {
 
       next();
     } catch (error: any) {
-      console.error("Plan enforcer error:", error);
+      logger.error("Plan enforcer error", { error });
       res.status(500).json({ error: "Erro ao verificar limite do plano" });
     }
   };

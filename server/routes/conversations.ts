@@ -16,6 +16,7 @@ function conversationWhere(req: Request, id: string) {
 
 function mapConversation(conversation: any) {
   const lastMessage = conversation.messages?.[0] || null;
+  const lastMetadata = (lastMessage?.metadata || {}) as any;
   return {
     id: conversation.id,
     contactId: conversation.contactId,
@@ -38,6 +39,9 @@ function mapConversation(conversation: any) {
           provider: conversation.channelInstance.channel?.provider,
         }
       : null,
+    isGroup: !!lastMetadata.isGroup,
+    chatType: lastMetadata.chatType || (lastMetadata.isGroup ? "group" : "private"),
+    remoteJid: lastMetadata.remoteJid || lastMetadata.chatJid || null,
     lastMessage: lastMessage?.content || "",
     lastMessageAt: conversation.lastMessageAt || lastMessage?.sentAt || conversation.createdAt,
     time: conversation.lastMessageAt || lastMessage?.sentAt || conversation.createdAt,
@@ -101,7 +105,7 @@ async function getOrCreateChannelInstance(tenantId: string, channelName: string)
 router.get("/",
   requirePermission("tickets", "read"),
   async (req: Request, res: Response) => {
-    const { status, search, channel } = req.query as Record<string, string | undefined>;
+    const { status, search, channel, chatType } = req.query as Record<string, string | undefined>;
 
     const where: any = req.user!.isSuperadmin ? {} : { tenantId: req.user!.tenantId };
 
@@ -110,13 +114,22 @@ router.get("/",
 
     if (status && status !== "all") where.status = status;
     if (channel && channel !== "all") where.channel = channel;
-    if (search) {
+    if (chatType === "group") {
+      where.messages = { some: { metadata: { path: ["isGroup"], equals: true } } };
+    } else if (chatType === "private") {
       where.OR = [
+        { messages: { none: { metadata: { path: ["isGroup"], equals: true } } } },
+        { messages: { some: { metadata: { path: ["isGroup"], equals: false } } } },
+      ];
+    }
+    if (search) {
+      const searchOr = [
         { contact: { name: { contains: search, mode: "insensitive" } } },
         { contact: { email: { contains: search, mode: "insensitive" } } },
         { contact: { phone: { contains: search, mode: "insensitive" } } },
         { messages: { some: { content: { contains: search, mode: "insensitive" } } } },
       ];
+      where.AND = [...(where.AND || []), { OR: searchOr }];
     }
 
     const conversations = await prisma.conversation.findMany({

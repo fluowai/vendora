@@ -1,5 +1,6 @@
 import prisma from "./prisma.ts";
 import { Request } from "express";
+import { logger } from "./logger.ts";
 
 interface AuditParams {
   tenantId: string
@@ -23,7 +24,7 @@ export async function logAudit(params: AuditParams): Promise<void> {
       },
     });
   } catch (error) {
-    console.error("Audit log error:", error);
+    logger.error("Audit log error", { error });
   }
 }
 
@@ -45,7 +46,7 @@ export function auditMiddleware(action: string, entityType: string) {
             ipAddress: req.ip,
             userAgent: req.headers["user-agent"],
           },
-        }).catch(console.error);
+        }).catch((err) => logger.error("Audit log async error", { error: err }));
       }
       return originalJson(body);
     };

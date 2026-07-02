@@ -1,5 +1,6 @@
 import prisma from "./prisma.ts";
 import { executeLLM } from "./providers.ts";
+import { logger } from "./logger.ts";
 
 const SUMMARY_INTERVAL = 10;
 
@@ -62,7 +63,7 @@ ${transcript}`,
 
     return summary;
   } catch (error) {
-    console.error("Summarization error:", error);
+    logger.error("Summarization error", { error });
     return null;
   }
 }

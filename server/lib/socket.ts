@@ -1,6 +1,7 @@
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
 import { verifyToken } from "../middleware/auth.ts";
+import { logger } from "./logger.ts";
 
 let io: Server | null = null;
 
@@ -30,7 +31,7 @@ export function setupSocket(httpServer: HttpServer): Server {
 
   io.on("connection", (socket: Socket) => {
     const user = socket.data.user;
-    console.log(`[Socket.IO] User connected: ${user.email}`);
+    logger.info(`[Socket.IO] User connected: ${user.email}`);
 
     socket.join(`tenant:${user.tenantId}`);
     socket.join(`user:${user.userId}`);
@@ -58,7 +59,7 @@ export function setupSocket(httpServer: HttpServer): Server {
     });
 
     socket.on("disconnect", () => {
-      console.log(`[Socket.IO] User disconnected: ${user.email}`);
+      logger.info(`[Socket.IO] User disconnected: ${user.email}`);
     });
   });
 

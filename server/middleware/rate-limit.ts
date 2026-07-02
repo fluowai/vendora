@@ -31,3 +31,20 @@ export const webhookLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Muitas requisições de webhook. Tente novamente em 1 minuto." },
 });
+
+// WhatsApp-specific rate limiters (stricter to avoid WhatsApp blocks)
+export const whatsappSendLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas mensagens WhatsApp enviadas. Aguarde um momento." },
+});
+
+export const whatsappMediaLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Muitas mídias WhatsApp enviadas. Aguarde um momento." },
+});

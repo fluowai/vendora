@@ -3,17 +3,101 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy target"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
 
 jobs:
-  deploy:
+  test-and-lint:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "postgresql://postgres:test@localhost:5432/postgres"
+      NODE_ENV: test
+      JWT_SECRET: test-secret-do-not-use-in-production
+      JWT_REFRESH_SECRET: test-refresh-secret-do-not-use-in-production
     steps:
       - uses: actions/checkout@v4
-      - name: Build Docker image
-        run: docker build -t vendaora/app .
-      - name: Deploy to Railway
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx tsc --noEmit
+      - run: npx prisma migrate deploy
+      - run: npm test
+
+  build-and-push:
+    needs: [test-and-lint]
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=ref,event=pr
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    needs: [build-and-push]
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Deploy to staging
         run: |
-          # Exemplo: deploy via Railway CLI
-          # npm i -g @railway/cli
-          # railway up --service vendaora-app
-          echo "Deploy configured via your preferred provider"
+          echo "Deploying ${{ needs.build-and-push.outputs.image_tag }} to staging..."
+          # Example: trigger staging deploy via SSH or webhook
+          # curl -X POST ${{ secrets.STAGING_DEPLOY_WEBHOOK }} \
+          #   -H "Authorization: Bearer ${{ secrets.STAGING_DEPLOY_KEY }}" \
+          #   -d '{"image": "${{ needs.build-and-push.outputs.image_tag }}"}'
+
+  deploy-production:
+    needs: [build-and-push]
+    if: github.event.inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy to production
+        run: |
+          echo "Deploying ${{ needs.build-and-push.outputs.image_tag }} to production..."
+          # Example: trigger production deploy via SSH or webhook
+          # curl -X POST ${{ secrets.PROD_DEPLOY_WEBHOOK }} \
+          #   -H "Authorization: Bearer ${{ secrets.PROD_DEPLOY_KEY }}" \
+          #   -d '{"image": "${{ needs.build-and-push.outputs.image_tag }}"}'

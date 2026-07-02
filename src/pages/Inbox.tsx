@@ -26,6 +26,7 @@ export default function Inbox() {
   const [conversations, setConversations] = useState<any[]>([]);
   const [view, setView] = useState<"list" | "chat" | "info">("list");
   const [search, setSearch] = useState("");
+  const [chatType, setChatType] = useState<"all" | "private" | "group">("all");
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -39,11 +40,11 @@ export default function Inbox() {
     if (activeChat && window.innerWidth < 1024) setView("chat");
   }, [activeChat]);
 
-  const loadConversations = async (query = search) => {
+  const loadConversations = async (query = search, type = chatType) => {
     try {
       setLoading(true);
       setError("");
-      const data = await api.getConversations({ search: query });
+      const data = await api.getConversations({ search: query, chatType: type === "all" ? undefined : type });
       setConversations(data.conversations);
     } catch (e: any) {
       setError(e.message || "Erro ao carregar conversas");
@@ -107,6 +108,11 @@ export default function Inbox() {
     }
   };
 
+  const changeChatType = (type: "all" | "private" | "group") => {
+    setChatType(type);
+    loadConversations(search, type);
+  };
+
   const getChannelColor = (channel: string) => {
     switch (channel) {
       case "whatsmeow":
@@ -149,6 +155,25 @@ export default function Inbox() {
             />
           </form>
           {error && <p className="text-xs text-red-500 font-bold">{error}</p>}
+          <div className="grid grid-cols-3 gap-1 bg-bg border border-border rounded-xl p-1">
+            {[
+              { id: "all", label: "Todas" },
+              { id: "private", label: "Privadas" },
+              { id: "group", label: "Grupos" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => changeChatType(item.id as "all" | "private" | "group")}
+                className={cn(
+                  "h-8 rounded-lg text-[11px] font-bold transition-all",
+                  chatType === item.id ? "bg-white text-primary shadow-sm" : "text-muted hover:text-text",
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -191,6 +216,11 @@ export default function Inbox() {
                   {chat.instance?.name && (
                     <span className="px-1.5 py-0.5 bg-[#25D366]/10 text-[#128C7E] text-[8px] font-bold uppercase rounded">
                       {chat.instance.name}
+                    </span>
+                  )}
+                  {chat.isGroup && (
+                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-[8px] font-bold uppercase rounded">
+                      grupo
                     </span>
                   )}
                   {chat.aiEnabled && (
@@ -237,7 +267,7 @@ export default function Inbox() {
                 {activeChat?.status === "active" && <div className="w-2 h-2 rounded-full bg-green-500" title="Ativa" />}
               </h3>
               <p className="text-[11px] text-muted">
-                {activeChat ? `${activeChat.instance?.name || activeChat.channel}` : "Aguardando selecao"}
+                {activeChat ? `${activeChat.isGroup ? "Grupo" : "Privada"} · ${activeChat.instance?.name || activeChat.channel}` : "Aguardando selecao"}
               </p>
             </div>
           </div>
@@ -274,6 +304,11 @@ export default function Inbox() {
                         ? "bg-primary text-white rounded-tr-sm"
                         : "bg-white border border-border text-text rounded-tl-sm",
                     )}>
+                      {!outbound && activeChat?.isGroup && (
+                        <div className="text-[10px] font-bold text-[#128C7E] uppercase tracking-wide mb-1">
+                          {message.metadata?.senderName || message.metadata?.participantJid || "Participante"}
+                        </div>
+                      )}
                       {outbound && message.senderType === "ai" && (
                         <div className="flex items-center gap-1.5 mb-1.5 opacity-80 border-b border-white/20 pb-1.5">
                           <Bot className="w-3 h-3" />

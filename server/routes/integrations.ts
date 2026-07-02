@@ -3,8 +3,9 @@ import prisma from "../lib/prisma.ts";
 import { authMiddleware } from "../middleware/auth.ts";
 import { requirePermission } from "../middleware/permissions.ts";
 import { validate, schemas } from "../middleware/validate.ts";
-import { webhookLimiter } from "../middleware/rate-limit.ts";
+import { webhookLimiter, whatsappSendLimiter, whatsappMediaLimiter } from "../middleware/rate-limit.ts";
 import { addMessageJob } from "../lib/queue.ts";
+import { logger } from "../lib/logger.ts";
 
 const router = Router();
 
@@ -14,6 +15,13 @@ function getWebhookSecret() {
 
 function getWhatsmeowBridgeUrl() {
   return (process.env.WHATSMEOW_BRIDGE_URL || "").replace(/\/$/, "");
+}
+
+function getWhatsmeowHeaders() {
+  return {
+    "Content-Type": "application/json",
+    ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
+  } as Record<string, string>;
 }
 
 function assertWebhookSecret(req: Request, res: Response): boolean {
@@ -35,6 +43,10 @@ function assertWebhookSecret(req: Request, res: Response): boolean {
 function asString(value: unknown, fallback = "") {
   if (value === null || value === undefined) return fallback;
   return String(value);
+}
+
+function isWhatsAppGroupJid(value: string) {
+  return value.endsWith("@g.us");
 }
 
 function stableId(...parts: string[]) {
@@ -278,7 +290,7 @@ router.post("/chatwoot/webhook", webhookLimiter, async (req: Request, res: Respo
       tenantId,
       conversationId: conversation.id,
       messageId: message.id,
-    }).catch((error) => console.error("[Pipeline] chatwoot incoming failed", error));
+    }).catch((error) => logger.error("[Pipeline] chatwoot incoming failed", { error }));
   }
 
   res.status(202).json({
@@ -314,7 +326,19 @@ router.get("/status", async (req: Request, res: Response) => {
         bridgeUrl: bridgeUrl || null,
         webhookPath: "/api/integrations/whatsmeow/incoming",
         qrPath: "/api/integrations/whatsmeow/qr",
+        pairCodePath: "/api/integrations/whatsmeow/pair/code",
         sendPath: "/api/integrations/whatsmeow/send",
+        sendMediaPath: "/api/integrations/whatsmeow/send/media",
+        typingPath: "/api/integrations/whatsmeow/typing",
+        healthPath: "/api/integrations/whatsmeow/health",
+        receiptPath: "/api/integrations/whatsmeow/incoming/receipt",
+      },
+      whatsapp_cloud: {
+        enabled: !!getCloudApiConfig().token && !!getCloudApiConfig().phoneNumberId,
+        webhookPath: "/api/integrations/whatsapp-cloud/webhook",
+        sendPath: "/api/integrations/whatsapp-cloud/send",
+        templatePath: "/api/integrations/whatsapp-cloud/send/template",
+        verifyTokenConfigured: !!getCloudApiConfig().verifyToken,
       },
     },
     channels,
@@ -448,10 +472,17 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
     return;
   }
 
-  const from = asString(req.body.from || req.body.sender || req.body.remoteJid || req.body.jid);
+  const from = asString(req.body.from || req.body.senderJid || req.body.sender || req.body.remoteJid || req.body.jid);
+  const chatJid = asString(req.body.chatId || req.body.remoteJid || req.body.conversationId || from);
+  const participantJid = asString(req.body.participantJid || req.body.senderJid || (isWhatsAppGroupJid(chatJid) ? from : ""));
   const messageId = asString(req.body.messageId || req.body.id);
   const text = asString(req.body.text || req.body.content || req.body.message?.text || req.body.message?.conversation);
-  const conversationKey = asString(req.body.chatId || req.body.conversationId || req.body.remoteJid || from);
+  const conversationKey = chatJid;
+  const hasMedia = !!req.body.hasMedia;
+  const media = req.body.media || null;
+  const messageType = asString(req.body.messageType || (hasMedia ? "media" : "text"));
+  const isGroup = req.body.isGroup === true || req.body.chatType === "group" || isWhatsAppGroupJid(chatJid);
+  const chatType = isGroup ? "group" : "private";
 
   if (!from || !conversationKey) {
     res.status(400).json({ error: "from/remoteJid obrigatório no payload whatsmeow" });
@@ -465,18 +496,29 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
     instanceId,
     externalConversationId: conversationKey,
     externalMessageId: messageId,
-    contactExternalId: from,
+    contactExternalId: isGroup ? chatJid : from,
     contactPayload: {
-      name: req.body.pushName || req.body.name || from,
-      phone: from.replace(/@.+$/, ""),
+      name: isGroup
+        ? asString(req.body.groupName || req.body.chatName || req.body.name || "Grupo WhatsApp")
+        : asString(req.body.pushName || req.body.name || from),
+      phone: isGroup ? null : from.replace(/@.+$/, ""),
       raw: req.body,
     },
-    content: text,
+    content: text || (hasMedia ? `[${messageType}]` : ""),
     senderType: "contact",
     metadata: {
       event: "whatsmeow.message",
-      remoteJid: from,
+      remoteJid: chatJid,
+      chatJid,
+      senderJid: from,
+      participantJid,
+      senderName: req.body.pushName || req.body.senderName || null,
+      isGroup,
+      chatType,
       instanceId,
+      hasMedia,
+      media,
+      messageType,
       raw: req.body,
     },
   });
@@ -487,7 +529,7 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
       tenantId,
       conversationId: conversation.id,
       messageId: message.id,
-    }).catch((error) => console.error("[Pipeline] whatsmeow incoming failed", error));
+    }).catch((error) => logger.error("[Pipeline] whatsmeow incoming failed", { error }));
   }
 
   res.status(202).json({
@@ -573,6 +615,40 @@ router.get("/whatsmeow/instances/:id/qr",
   }
 );
 
+router.post("/whatsmeow/instances/:id/logout",
+  authMiddleware,
+  requirePermission("channels", "manage"),
+  async (req: Request, res: Response) => {
+    const instance = await assertInstanceAccess(req, res);
+    if (!instance) return;
+
+    const bridgeUrl = getWhatsmeowBridgeUrl();
+    if (!bridgeUrl) {
+      res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL não configurado" });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${bridgeUrl}/logout`, {
+        method: "POST",
+        headers: getWhatsmeowHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok) {
+        await prisma.channelInstance.update({
+          where: { id: instance.id },
+          data: { status: "disconnected" },
+        });
+      }
+
+      res.status(response.status).json({ ...data, instanceId: instance.id });
+    } catch (error: any) {
+      res.status(503).json({ error: error.message || "Bridge whatsmeow indisponível" });
+    }
+  }
+);
+
 router.get("/whatsmeow/status", async (_req: Request, res: Response) => {
   const bridgeUrl = getWhatsmeowBridgeUrl();
   if (!bridgeUrl) {
@@ -605,7 +681,33 @@ router.get("/whatsmeow/qr", async (_req: Request, res: Response) => {
   }
 });
 
-router.post("/whatsmeow/send", async (req: Request, res: Response) => {
+router.post("/whatsmeow/pair/code", whatsappSendLimiter, async (req: Request, res: Response) => {
+  const bridgeUrl = getWhatsmeowBridgeUrl();
+  if (!bridgeUrl) {
+    res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL nÃ£o configurado" });
+    return;
+  }
+
+  const { phone, showPushNotification, clientType, clientDisplayName } = req.body;
+  if (!phone) {
+    res.status(400).json({ error: "phone obrigatorio" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${bridgeUrl}/pair/code`, {
+      method: "POST",
+      headers: getWhatsmeowHeaders(),
+      body: JSON.stringify({ phone, showPushNotification: !!showPushNotification, clientType, clientDisplayName }),
+    });
+    const data = await response.json().catch(() => ({}));
+    res.status(response.status).json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "Bridge whatsmeow indisponivel" });
+  }
+});
+
+router.post("/whatsmeow/send", whatsappSendLimiter, async (req: Request, res: Response) => {
   const bridgeUrl = getWhatsmeowBridgeUrl();
   if (!bridgeUrl) {
     res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL não configurado" });
@@ -620,14 +722,330 @@ router.post("/whatsmeow/send", async (req: Request, res: Response) => {
 
   const response = await fetch(`${bridgeUrl}/send`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
-    },
+    headers: getWhatsmeowHeaders(),
     body: JSON.stringify({ to, text, conversationId }),
   });
   const data = await response.json().catch(() => ({}));
   res.status(response.status).json(data);
+});
+
+router.post("/whatsmeow/send/media", whatsappMediaLimiter, async (req: Request, res: Response) => {
+  const bridgeUrl = getWhatsmeowBridgeUrl();
+  if (!bridgeUrl) {
+    res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL não configurado" });
+    return;
+  }
+
+  const { to, caption, mediaUrl, mediaType, fileName, conversationId } = req.body;
+  if (!to || !mediaUrl) {
+    res.status(400).json({ error: "to e mediaUrl são obrigatórios" });
+    return;
+  }
+
+  const response = await fetch(`${bridgeUrl}/send/media`, {
+    method: "POST",
+    headers: getWhatsmeowHeaders(),
+    body: JSON.stringify({ to, caption, mediaUrl, mediaType, fileName, conversationId }),
+  });
+  const data = await response.json().catch(() => ({}));
+  res.status(response.status).json(data);
+});
+
+router.post("/whatsmeow/typing", async (req: Request, res: Response) => {
+  const bridgeUrl = getWhatsmeowBridgeUrl();
+  if (!bridgeUrl) {
+    res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL não configurado" });
+    return;
+  }
+
+  const { to, state } = req.body;
+  if (!to) {
+    res.status(400).json({ error: "to é obrigatório" });
+    return;
+  }
+
+  const response = await fetch(`${bridgeUrl}/typing`, {
+    method: "POST",
+    headers: getWhatsmeowHeaders(),
+    body: JSON.stringify({ to, state: state || "typing" }),
+  });
+  const data = await response.json().catch(() => ({}));
+  res.status(response.status).json(data);
+});
+
+router.get("/whatsmeow/health", async (_req: Request, res: Response) => {
+  const bridgeUrl = getWhatsmeowBridgeUrl();
+  if (!bridgeUrl) {
+    res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${bridgeUrl}/health`);
+    const data = await response.json().catch(() => ({}));
+    res.status(response.status).json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "Bridge whatsmeow indisponível" });
+  }
+});
+
+router.post("/whatsmeow/incoming/receipt", webhookLimiter, async (req: Request, res: Response) => {
+  if (!assertWebhookSecret(req, res)) return;
+
+  const tenantId = asString(req.headers["x-tenant-id"] || req.query.tenantId || req.body.tenantId);
+  if (!tenantId) {
+    res.status(400).json({ error: "tenantId obrigatório" });
+    return;
+  }
+
+  const event = asString(req.body.event);
+  if (event !== "receipt") {
+    res.status(200).json({ accepted: true });
+    return;
+  }
+
+  const messageIds: string[] = req.body.messageIds || [];
+  const receiptType = asString(req.body.receiptType);
+
+  if (messageIds.length > 0) {
+    await prisma.message.updateMany({
+      where: {
+        tenantId,
+        providerMessageId: { in: messageIds },
+      },
+      data: {
+        ...(receiptType === "read" || receiptType === "read-self"
+          ? { readAt: new Date() }
+          : { deliveredAt: new Date() }),
+      },
+    });
+  }
+
+  res.status(202).json({ accepted: true });
+});
+
+// ============================================================
+// WhatsApp Cloud API (Meta Official API)
+// ============================================================
+
+function getCloudApiConfig() {
+  return {
+    token: process.env.WHATSAPP_CLOUD_TOKEN || "",
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+    appSecret: process.env.META_APP_SECRET || "",
+    verifyToken: process.env.META_VERIFY_TOKEN || "vendaora_verify",
+  };
+}
+
+const CLOUD_API_BASE = "https://graph.facebook.com/v22.0";
+
+router.get("/whatsapp-cloud/webhook", async (req: Request, res: Response) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  const config = getCloudApiConfig();
+
+  if (mode === "subscribe" && token === config.verifyToken) {
+    logger.info("[WhatsApp Cloud] Webhook verified");
+    res.status(200).send(challenge);
+  } else {
+    res.status(403).send("Verification failed");
+  }
+});
+
+router.post("/whatsapp-cloud/webhook", webhookLimiter, async (req: Request, res: Response) => {
+  const body = req.body;
+  const config = getCloudApiConfig();
+
+  if (!config.token || !config.phoneNumberId) {
+    res.status(503).json({ error: "WhatsApp Cloud API não configurado" });
+    return;
+  }
+
+  if (config.appSecret) {
+    const signature = asString(req.headers["x-hub-signature-256"]);
+    if (signature) {
+      const crypto = await import("crypto");
+      const expected = crypto
+        .createHmac("sha256", config.appSecret)
+        .update(JSON.stringify(body))
+        .digest("hex");
+      if (signature !== `sha256=${expected}`) {
+        res.status(401).json({ error: "Invalid signature" });
+        return;
+      }
+    }
+  }
+
+  const entries = body?.entry || [];
+  for (const entry of entries) {
+    const changes = entry?.changes || [];
+    for (const change of changes) {
+      const value = change?.value || {};
+      const messages = value?.messages || [];
+      const metadata = value?.metadata || {};
+      const contacts = value?.contacts || [];
+
+      const phoneNumberId = metadata?.phone_number_id;
+      const displayPhoneNumber = metadata?.display_phone_number;
+
+      for (const msg of messages) {
+        const from = msg?.from || "";
+        const msgId = msg?.id || "";
+        const msgType = msg?.type || "text";
+        let text = "";
+        let mediaInfo: any = null;
+
+        if (msgType === "text") {
+          text = msg?.text?.body || "";
+        } else if (msgType === "image") {
+          text = `[image: ${msg?.image?.caption || ""}]`;
+          mediaInfo = { type: "image", id: msg?.image?.id, caption: msg?.image?.caption, mimeType: msg?.image?.mime_type };
+        } else if (msgType === "audio") {
+          text = `[audio]`;
+          mediaInfo = { type: "audio", id: msg?.audio?.id, mimeType: msg?.audio?.mime_type, duration: msg?.audio?.duration };
+        } else if (msgType === "video") {
+          text = `[video: ${msg?.video?.caption || ""}]`;
+          mediaInfo = { type: "video", id: msg?.video?.id, caption: msg?.video?.caption };
+        } else if (msgType === "document") {
+          text = `[document: ${msg?.document?.filename || ""}]`;
+          mediaInfo = { type: "document", id: msg?.document?.id, fileName: msg?.document?.filename };
+        } else if (msgType === "button") {
+          text = msg?.button?.text || "";
+        } else if (msgType === "interactive") {
+          text = msg?.interactive?.button_reply?.title || msg?.interactive?.list_reply?.title || "";
+        }
+
+        const contactName = contacts?.[0]?.profile?.name || "";
+        const tenantId = asString(req.headers["x-tenant-id"] || req.query.tenantId);
+
+        if (!tenantId) continue;
+
+        const existingTenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+        if (!existingTenant) continue;
+
+        const { conversation, message, isNewMessage } = await materializeIncomingMessage({
+          tenantId,
+          provider: "whatsapp_cloud",
+          providerName: "WhatsApp Cloud API",
+          externalConversationId: from,
+          externalMessageId: msgId,
+          contactExternalId: from,
+          contactPayload: { name: contactName || from, phone: from, raw: msg },
+          content: text,
+          senderType: "contact",
+          metadata: {
+            event: "whatsapp_cloud.message",
+            messageType: msgType,
+            media: mediaInfo,
+            phoneNumberId,
+            displayPhoneNumber,
+            raw: msg,
+          },
+        });
+
+        if (isNewMessage && message?.senderType === "contact") {
+          void addMessageJob({
+            type: "incoming",
+            tenantId,
+            conversationId: conversation.id,
+            messageId: message.id,
+          }).catch((error) => logger.error("[Pipeline] whatsapp_cloud incoming failed", { error }));
+        }
+      }
+    }
+  }
+
+  res.sendStatus(200);
+});
+
+async function sendCloudApiMessage(phoneNumberId: string, token: string, to: string, text: string) {
+  const response = await fetch(`${CLOUD_API_BASE}/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      type: "text",
+      text: { body: text },
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error?.message || `Cloud API error: ${response.status}`);
+  }
+  return data;
+}
+
+router.post("/whatsapp-cloud/send", whatsappSendLimiter, async (req: Request, res: Response) => {
+  const config = getCloudApiConfig();
+
+  if (!config.token || !config.phoneNumberId) {
+    res.status(503).json({ error: "WhatsApp Cloud API não configurado" });
+    return;
+  }
+
+  const { to, text } = req.body;
+  if (!to || !text) {
+    res.status(400).json({ error: "to e text são obrigatórios" });
+    return;
+  }
+
+  try {
+    const result = await sendCloudApiMessage(config.phoneNumberId, config.token, to, text);
+    res.json({ sent: true, messageId: result?.messages?.[0]?.id, result });
+  } catch (error: any) {
+    res.status(502).json({ error: error.message || "Falha ao enviar via Cloud API" });
+  }
+});
+
+router.post("/whatsapp-cloud/send/template", whatsappSendLimiter, async (req: Request, res: Response) => {
+  const config = getCloudApiConfig();
+
+  if (!config.token || !config.phoneNumberId) {
+    res.status(503).json({ error: "WhatsApp Cloud API não configurado" });
+    return;
+  }
+
+  const { to, templateName, languageCode, components } = req.body;
+  if (!to || !templateName) {
+    res.status(400).json({ error: "to e templateName são obrigatórios" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${CLOUD_API_BASE}/${config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${config.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: languageCode || "pt_BR" },
+          components: components || [],
+        },
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error?.message || `Cloud API template error: ${response.status}`);
+    }
+    res.json({ sent: true, messageId: data?.messages?.[0]?.id, result: data });
+  } catch (error: any) {
+    res.status(502).json({ error: error.message || "Falha ao enviar template" });
+  }
 });
 
 export default router;

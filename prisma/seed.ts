@@ -92,21 +92,9 @@ async function main() {
   }
 
   // ============= DEMO TENANT =============
-  let existing = await prisma.tenant.findUnique({ where: { slug: "vendaora" } });
-  if (existing) {
-    console.log("  Demo tenant exists. Updating roles with latest permissions...");
-    for (const [roleName, perms] of Object.entries(ALL_PERMISSIONS)) {
-      const role = await prisma.role.findFirst({ where: { tenantId: existing.id, name: roleName } });
-      if (role) {
-        await prisma.permission.deleteMany({ where: { roleId: role.id } });
-        await prisma.permission.createMany({
-          data: perms.map((p) => ({ roleId: role.id, action: p.action, subject: p.subject })),
-        });
-        console.log(`    Updated role: ${roleName}`);
-      }
-    }
-  } else {
-    const tenant = await prisma.tenant.create({
+  let tenant = await prisma.tenant.findUnique({ where: { slug: "vendaora" } });
+  if (!tenant) {
+    tenant = await prisma.tenant.create({
       data: {
         id: "seed-tenant",
         name: "Vendaora AI",
@@ -115,23 +103,40 @@ async function main() {
         planId: "growth",
       },
     });
+    console.log(`  Created tenant: ${tenant.name}`);
+  }
 
-    // ============= ROLES =============
-    console.log("  Creating roles...");
-    for (const [roleName, perms] of Object.entries(ALL_PERMISSIONS)) {
+  // ============= ROLES (always ensure they exist) =============
+  const existingRoles = await prisma.role.findMany({ where: { tenantId: tenant.id } });
+  const existingRoleNames = existingRoles.map((r) => r.name);
+  let createdAdminRole: any;
+
+  for (const [roleName, perms] of Object.entries(ALL_PERMISSIONS)) {
+    if (existingRoleNames.includes(roleName)) {
+      // Update permissions
+      const role = existingRoles.find((r) => r.name === roleName)!;
+      await prisma.permission.deleteMany({ where: { roleId: role.id } });
+      await prisma.permission.createMany({
+        data: perms.map((p) => ({ roleId: role.id, action: p.action, subject: p.subject })),
+      });
+      console.log(`    Updated role: ${roleName}`);
+    } else {
+      // Create role
       const role = await prisma.role.create({
         data: {
           tenantId: tenant.id,
           name: roleName,
-          permissions: {
-            create: perms,
-          },
+          permissions: { create: perms },
         },
       });
-      console.log(`    Role: ${role.name}`);
+      console.log(`    Created role: ${roleName}`);
     }
+  }
 
-    const adminUser = await prisma.user.create({
+  // ============= DEMO USERS (always ensure they exist) =============
+  let adminUser = await prisma.user.findUnique({ where: { email: "admin@vendaora.com" } });
+  if (!adminUser) {
+    adminUser = await prisma.user.create({
       data: {
         name: "Admin",
         email: "admin@vendaora.com",
@@ -139,16 +144,12 @@ async function main() {
         tenantId: tenant.id,
       },
     });
+    console.log(`  Created user: ${adminUser.email}`);
+  }
 
-    // Assign admin role
-    const adminRole = await prisma.role.findFirst({ where: { tenantId: tenant.id, name: "admin" } });
-    if (adminRole) {
-      await prisma.userRole.create({ data: { userId: adminUser.id, roleId: adminRole.id } });
-      console.log(`  Assigned admin role to ${adminUser.email}`);
-    }
-
-    // Create agent user with agent role
-    const agentUser = await prisma.user.create({
+  let agentUser = await prisma.user.findUnique({ where: { email: "joao@vendaora.com" } });
+  if (!agentUser) {
+    agentUser = await prisma.user.create({
       data: {
         name: "João Atendente",
         email: "joao@vendaora.com",
@@ -156,14 +157,35 @@ async function main() {
         tenantId: tenant.id,
       },
     });
+    console.log(`  Created user: ${agentUser.email}`);
+  }
 
-    const agentRole = await prisma.role.findFirst({ where: { tenantId: tenant.id, name: "agent" } });
-    if (agentRole) {
+  // ============= ASSIGN ROLES (always ensure they exist) =============
+  const adminRole = await prisma.role.findFirst({ where: { tenantId: tenant.id, name: "admin" } });
+  if (adminRole) {
+    const existingAdminRole = await prisma.userRole.findFirst({
+      where: { userId: adminUser.id, roleId: adminRole.id },
+    });
+    if (!existingAdminRole) {
+      await prisma.userRole.create({ data: { userId: adminUser.id, roleId: adminRole.id } });
+      console.log(`  Assigned admin role to ${adminUser.email}`);
+    }
+  }
+
+  const agentRole = await prisma.role.findFirst({ where: { tenantId: tenant.id, name: "agent" } });
+  if (agentRole) {
+    const existingAgentRole = await prisma.userRole.findFirst({
+      where: { userId: agentUser.id, roleId: agentRole.id },
+    });
+    if (!existingAgentRole) {
       await prisma.userRole.create({ data: { userId: agentUser.id, roleId: agentRole.id } });
       console.log(`  Assigned agent role to ${agentUser.email}`);
     }
+  }
 
-    // ============= DEPARTMENTS =============
+  // ============= DEPARTMENTS (skip if exist) =============
+  const existingDepts = await prisma.department.findMany({ where: { tenantId: tenant.id } });
+  if (existingDepts.length === 0) {
     console.log("  Creating departments...");
     const departments = [
       { name: "Vendas" },
@@ -172,13 +194,14 @@ async function main() {
       { name: "Financeiro" },
     ];
     for (const dept of departments) {
-      await prisma.department.create({
-        data: { tenantId: tenant.id, name: dept.name },
-      });
+      await prisma.department.create({ data: { tenantId: tenant.id, name: dept.name } });
       console.log(`    Department: ${dept.name}`);
     }
+  }
 
-    // ============= AGENTS =============
+  // ============= AGENTS (skip if exist) =============
+  const existingAgentCount = await prisma.aiAgent.count({ where: { tenantId: tenant.id } });
+  if (existingAgentCount === 0) {
     console.log("  Creating seed agents...");
     const seedAgents = [
       {
@@ -248,17 +271,17 @@ async function main() {
     ];
 
     for (const agent of seedAgents) {
-      const existingAgent = await prisma.aiAgent.findUnique({ where: { id: agent.id } });
-      if (!existingAgent) {
+      const existingAgentCheck = await prisma.aiAgent.findUnique({ where: { id: agent.id } });
+      if (!existingAgentCheck) {
         await prisma.aiAgent.create({ data: { ...agent, tenantId: tenant.id, authorId: adminUser.id, authorName: adminUser.name } });
         console.log(`    Agent: ${agent.name}`);
       }
     }
-
-    console.log(`  Demo tenant: ${tenant.name}`);
-    console.log(`  Admin: admin@vendaora.com / admin123`);
-    console.log(`  Agent: joao@vendaora.com / joao123`);
   }
+
+  console.log(`  Demo tenant: ${tenant.name}`);
+  console.log(`  Admin: admin@vendaora.com / admin123`);
+  console.log(`  Agent: joao@vendaora.com / joao123`);
 
   console.log("\nSeed complete!");
 }

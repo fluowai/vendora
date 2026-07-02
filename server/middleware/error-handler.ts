@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { logger } from "../lib/logger.ts";
 
 export class AppError extends Error {
   constructor(
@@ -20,7 +21,7 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
     return;
   }
 
-  console.error("Unhandled error:", err);
+  logger.error("Unhandled error", { error: err.message, stack: err.stack });
 
   res.status(500).json({
     error: process.env.NODE_ENV === "production" ? "Erro interno do servidor" : err.message,

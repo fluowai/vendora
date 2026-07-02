@@ -8,3 +8,9 @@ coverage/
 *.db-journal
 .env*
 !.env.example
+*.exe
+*.exe~
+*.err
+wacalls/
+wacalls-server/
+uploads/

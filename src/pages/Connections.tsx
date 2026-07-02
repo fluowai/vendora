@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import {
   CheckCircle2,
+  LogOut,
   Loader2,
   Plus,
   QrCode,
   RefreshCw,
   Smartphone,
+  X,
 } from "lucide-react";
 import { api } from "@/src/lib/api";
 
@@ -19,9 +21,13 @@ export default function Connections() {
   const [qrByInstance, setQrByInstance] = useState<Record<string, string>>({});
   const [statusByInstance, setStatusByInstance] = useState<Record<string, any>>({});
   const [error, setError] = useState("");
+  const [pairingId, setPairingId] = useState<string | null>(null);
+  const [pairingQr, setPairingQr] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     load();
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
   const load = async () => {
@@ -42,7 +48,6 @@ export default function Connections() {
       setError("Informe um nome para a instancia");
       return;
     }
-
     try {
       setSaving(true);
       setError("");
@@ -53,9 +58,10 @@ export default function Connections() {
       });
       setConnections((items) => [...items, data.connection]);
       setInstanceName("");
+      setSaving(false);
+      openQr(data.connection.id);
     } catch (e: any) {
       setError(e.message || "Erro ao criar instancia");
-    } finally {
       setSaving(false);
     }
   };
@@ -66,11 +72,13 @@ export default function Connections() {
       setError("");
       const data = await api.getWhatsmeowInstanceStatus(id);
       setStatusByInstance((items) => ({ ...items, [id]: data }));
+      return data;
     } catch (e: any) {
       setStatusByInstance((items) => ({
         ...items,
         [id]: { connected: false, error: e.message || "Bridge indisponivel" },
       }));
+      return null;
     } finally {
       setCheckingId("");
     }
@@ -83,14 +91,54 @@ export default function Connections() {
       const data = await api.getWhatsmeowInstanceQr(id);
       if (!data.qr) {
         setStatusByInstance((items) => ({ ...items, [id]: data }));
-        setError(data.connected ? "Instancia ja conectada" : "QR ainda nao disponivel no bridge");
+        if (!data.connected) {
+          setError("QR ainda nao disponivel no bridge, tente novamente");
+        }
         return;
       }
-      const image = await QRCode.toDataURL(data.qr, { margin: 2, width: 240 });
+      const image = await QRCode.toDataURL(data.qr, { margin: 2, width: 280 });
       setQrByInstance((items) => ({ ...items, [id]: image }));
       setStatusByInstance((items) => ({ ...items, [id]: data }));
+      setPairingId(id);
+      setPairingQr(image);
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current = setInterval(async () => {
+        const st = await api.getWhatsmeowInstanceQr(id);
+        if (st?.connected) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          setPairingId(null);
+          setPairingQr(null);
+        } else if (st?.qr && st.qr !== qrByInstance[id]) {
+          const newImg = await QRCode.toDataURL(st.qr, { margin: 2, width: 280 });
+          setQrByInstance((items) => ({ ...items, [id]: newImg }));
+          setPairingQr(newImg);
+        }
+      }, 5000);
     } catch (e: any) {
       setError(e.message || "Erro ao carregar QR Code");
+    } finally {
+      setCheckingId("");
+    }
+  };
+
+  const closePairing = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    setPairingId(null);
+    setPairingQr(null);
+  };
+
+  const disconnectInstance = async (id: string) => {
+    try {
+      setCheckingId(id);
+      setError("");
+      const data = await api.logoutWhatsmeowInstance(id);
+      setStatusByInstance((items) => ({ ...items, [id]: { ...items[id], ...data, connected: false } }));
+      setConnections((items) => items.map((item) => (
+        item.id === id ? { ...item, status: "disconnected" } : item
+      )));
+      if (pairingId === id) closePairing();
+    } catch (e: any) {
+      setError(e.message || "Erro ao desconectar instancia");
     } finally {
       setCheckingId("");
     }
@@ -154,7 +202,7 @@ export default function Connections() {
           <div className="p-4 bg-bg rounded-xl border border-border">
             <p className="text-xs font-bold text-text mb-2">Pareamento</p>
             <p className="text-xs text-muted leading-relaxed">
-              Depois de criar a instância, o próximo passo é abrir o QR Code do bridge whatsmeow para conectar o número.
+              Depois de criar a instância, o QR Code abre automaticamente. Escaneie com o WhatsApp e aguarde a conexão.
             </p>
           </div>
         </section>
@@ -189,15 +237,13 @@ export default function Connections() {
                     <div className="min-w-0">
                       <p className="font-bold text-sm truncate">{connection.name}</p>
                       <p className="text-xs text-muted truncate">WhatsApp whatsmeow</p>
-                      {connection.webhookUrl && (
-                        <p className="text-[10px] text-muted truncate font-mono mt-1">{connection.webhookUrl}</p>
-                      )}
                     </div>
                   </div>
                   <div className="flex flex-col md:items-end gap-3">
                     <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-green-50 text-green-700 text-[10px] font-bold uppercase">
-                        <CheckCircle2 className="w-3 h-3" /> {statusByInstance[connection.id]?.connected ? "conectada" : connection.status}
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${statusByInstance[connection.id]?.connected ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
+                        {statusByInstance[connection.id]?.connected ? <CheckCircle2 className="w-3 h-3" /> : <Loader2 className="w-3 h-3 animate-spin" />}
+                        {statusByInstance[connection.id]?.connected ? "conectada" : "desconectada"}
                       </span>
                       <button
                         onClick={() => checkStatus(connection.id)}
@@ -214,16 +260,17 @@ export default function Connections() {
                       >
                         <QrCode className="w-3 h-3" /> QR
                       </button>
+                      <button
+                        onClick={() => disconnectInstance(connection.id)}
+                        disabled={checkingId === connection.id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 border border-red-100 text-red-600 text-[10px] font-bold uppercase hover:bg-red-100 disabled:opacity-50"
+                      >
+                        {checkingId === connection.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <LogOut className="w-3 h-3" />}
+                        Desconectar
+                      </button>
                     </div>
                     {statusByInstance[connection.id]?.error && (
                       <p className="text-[10px] text-red-500 font-bold max-w-xs">{statusByInstance[connection.id].error}</p>
-                    )}
-                    {qrByInstance[connection.id] && (
-                      <img
-                        src={qrByInstance[connection.id]}
-                        alt={`QR Code ${connection.name}`}
-                        className="w-40 h-40 rounded-xl border border-border bg-white p-2"
-                      />
                     )}
                   </div>
                 </div>
@@ -232,6 +279,38 @@ export default function Connections() {
           )}
         </section>
       </div>
+
+      {pairingQr && pairingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={closePairing}>
+          <div
+            className="bg-surface rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl border border-border text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={closePairing}
+              className="absolute top-4 right-4 p-2 rounded-xl hover:bg-bg text-muted"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <Smartphone className="w-10 h-10 text-[#128C7E] mx-auto mb-4" />
+            <h3 className="font-bold text-lg mb-1">Conectar WhatsApp</h3>
+            <p className="text-sm text-muted mb-6">
+              Abra o WhatsApp no celular, vá em <strong>Menu {'>'} Aparelhos conectados</strong> e escaneie o QR Code abaixo.
+            </p>
+            <div className="flex justify-center mb-6">
+              <img
+                src={pairingQr}
+                alt="QR Code WhatsApp"
+                className="w-56 h-56 rounded-xl border-2 border-border bg-white p-2"
+              />
+            </div>
+            <div className="flex items-center justify-center gap-2 text-sm text-muted">
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              Aguardando conexão...
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

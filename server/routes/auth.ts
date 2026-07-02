@@ -1,16 +1,19 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import prisma from "../lib/prisma.ts";
-import { generateToken, generateRefreshToken, authMiddleware } from "../middleware/auth.ts";
+import { generateToken, generateRefreshToken, rotateRefreshToken, revokeAllRefreshTokens, authMiddleware } from "../middleware/auth.ts";
 import { supabaseAdmin, isSupabaseReady } from "../lib/supabase.ts";
 import { validate, schemas } from "../middleware/validate.ts";
+import { logger } from "../lib/logger.ts";
 
 const router = Router();
 
 router.post("/register", validate(schemas.register), async (req: Request, res: Response) => {
   try {
     const { email, password, name, company } = req.body;
-    if (password.length < 6) { res.status(400).json({ error: "Senha deve ter no mínimo 6 caracteres" }); return; }
+    if (password.length < 8) { res.status(400).json({ error: "Senha deve ter no mínimo 8 caracteres" }); return; }
+    if (!/[A-Z]/.test(password)) { res.status(400).json({ error: "Senha deve conter pelo menos uma letra maiúscula" }); return; }
+    if (!/[0-9]/.test(password)) { res.status(400).json({ error: "Senha deve conter pelo menos um número" }); return; }
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) { res.status(409).json({ error: "Email já cadastrado" }); return; }
@@ -60,27 +63,62 @@ router.post("/register", validate(schemas.register), async (req: Request, res: R
       },
     });
 
-    // Assign default 'agent' role
-    const agentRole = await prisma.role.findFirst({
-      where: { tenantId: tenant.id, name: "agent" },
-    });
-    if (agentRole) {
-      await prisma.userRole.create({
-        data: { userId: user.id, roleId: agentRole.id },
+    // Create default roles for the new tenant
+    const defaultRoles = [
+      { name: "admin", permissions: [
+        { action: "tickets", subject: "read" }, { action: "tickets", subject: "manage" },
+        { action: "crm", subject: "read" }, { action: "crm", subject: "manage" },
+        { action: "ombudsman", subject: "read" }, { action: "ombudsman", subject: "manage" },
+        { action: "agents", subject: "manage" }, { action: "agents", subject: "read" },
+        { action: "channels", subject: "manage" }, { action: "channels", subject: "read" },
+        { action: "settings", subject: "read" }, { action: "settings", subject: "write" },
+        { action: "team", subject: "read" }, { action: "team", subject: "manage" },
+        { action: "reports", subject: "read" },
+      ]},
+      { name: "supervisor", permissions: [
+        { action: "tickets", subject: "read" }, { action: "tickets", subject: "manage" },
+        { action: "crm", subject: "read" }, { action: "crm", subject: "manage" },
+        { action: "ombudsman", subject: "read" }, { action: "ombudsman", subject: "manage" },
+        { action: "agents", subject: "read" }, { action: "channels", subject: "read" },
+        { action: "settings", subject: "read" }, { action: "team", subject: "read" },
+        { action: "reports", subject: "read" },
+      ]},
+      { name: "agent", permissions: [
+        { action: "tickets", subject: "read" }, { action: "tickets", subject: "manage" },
+        { action: "crm", subject: "read" }, { action: "ombudsman", subject: "read" },
+        { action: "agents", subject: "read" }, { action: "reports", subject: "read" },
+      ]},
+    ];
+
+    const createdRoles: any[] = [];
+    for (const r of defaultRoles) {
+      const role = await prisma.role.create({
+        data: {
+          tenantId: tenant.id,
+          name: r.name,
+          permissions: { create: r.permissions },
+        },
       });
+      createdRoles.push(role);
     }
+
+    // Assign 'admin' role to the registering user (they own the tenant)
+    const adminRole = createdRoles.find((r) => r.name === "admin")!;
+    await prisma.userRole.create({
+      data: { userId: user.id, roleId: adminRole.id },
+    });
 
     const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: false };
     const token = generateToken(tokenPayload);
-    const refreshToken = generateRefreshToken(tokenPayload);
+    const refreshResult = await generateRefreshToken(tokenPayload);
 
     res.status(201).json({
       user: { id: user.id, name: user.name, email: user.email, company: tenant.name, plan: tenant.planId, isSuperadmin: false },
       token,
-      refreshToken,
+      refreshToken: refreshResult.token,
     });
   } catch (error: any) {
-    console.error("Register error:", error);
+    logger.error("Register error", { error });
     res.status(500).json({ error: "Erro ao registrar" });
   }
 });
@@ -104,11 +142,11 @@ router.post("/login", validate(schemas.login), async (req: Request, res: Respons
           await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
           const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: user.isSuperadmin };
           const token = generateToken(tokenPayload);
-          const refreshToken = generateRefreshToken(tokenPayload);
+          const refreshResult = await generateRefreshToken(tokenPayload);
           res.json({
             user: { id: user.id, name: user.name, email: user.email, company: user.tenant.name, plan: user.tenant.planId, isSuperadmin: user.isSuperadmin, tenantId: user.tenantId },
             token,
-            refreshToken,
+            refreshToken: refreshResult.token,
             sbSession: sbData.session,
           });
           return;
@@ -130,7 +168,7 @@ router.post("/login", validate(schemas.login), async (req: Request, res: Respons
 
     const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: user.isSuperadmin };
     const token = generateToken(tokenPayload);
-    const refreshToken = generateRefreshToken(tokenPayload);
+    const refreshResult = await generateRefreshToken(tokenPayload);
 
     res.json({
       user: {
@@ -140,11 +178,36 @@ router.post("/login", validate(schemas.login), async (req: Request, res: Respons
         tenantId: user.tenantId,
       },
       token,
-      refreshToken,
+      refreshToken: refreshResult.token,
     });
   } catch (error: any) {
-    console.error("Login error:", error);
+    logger.error("Login error", { error });
     res.status(500).json({ error: "Erro ao fazer login" });
+  }
+});
+
+router.post("/refresh", async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) { res.status(400).json({ error: "Refresh token obrigatório" }); return; }
+
+    const result = await rotateRefreshToken(refreshToken);
+    if (!result) { res.status(401).json({ error: "Refresh token inválido ou reutilizado. Faça login novamente." }); return; }
+
+    res.json({ token: result.accessToken, refreshToken: result.refreshToken });
+  } catch (error: any) {
+    logger.error("Refresh error", { error });
+    res.status(500).json({ error: "Erro ao renovar token" });
+  }
+});
+
+router.post("/logout", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    await revokeAllRefreshTokens(req.user!.userId);
+    res.json({ success: true });
+  } catch (error: any) {
+    logger.error("Logout error", { error });
+    res.status(500).json({ error: "Erro ao fazer logout" });
   }
 });
 
