@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile.frontend
       args:
         VITE_API_URL: "same-origin"
-    image: ghcr.io/vendaora/vendora/frontend:latest
+    image: ghcr.io/fluowai/vendora/frontend:latest
     environment:
       VITE_API_URL: "same-origin"
     networks:
@@ -27,7 +27,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/vendaora/vendora/api:latest
+    image: ghcr.io/fluowai/vendora/api:latest
     environment:
       NODE_ENV: production
       PORT: 3333
