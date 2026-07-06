@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 
-const SOCKET_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_URL) || "http://localhost:3333";
+const CONFIGURED_SOCKET_URL =
+  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_API_URL) || "same-origin";
+
+function getSocketUrl(): string | undefined {
+  const value = String(CONFIGURED_SOCKET_URL).trim();
+  return !value || value === "same-origin" ? undefined : value;
+}
 
 export function useSocket() {
   const socketRef = useRef<Socket | null>(null);
@@ -12,10 +18,12 @@ export function useSocket() {
     const token = localStorage.getItem("vendaora_token");
     if (!token) return;
 
-    const socket = io(SOCKET_URL, {
+    const socketOptions = {
       auth: { token },
       transports: ["websocket", "polling"],
-    });
+    };
+    const socketUrl = getSocketUrl();
+    const socket = socketUrl ? io(socketUrl, socketOptions) : io(socketOptions);
 
     socket.on("connect", () => {
       console.log("[Socket] Connected");

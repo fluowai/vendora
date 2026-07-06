@@ -49,6 +49,14 @@ const PORT = parseInt(process.env.PORT || "3333", 10);
 const FRONTEND_URL = process.env.FRONTEND_URL || process.env.APP_URL || "http://localhost:5173";
 const NODE_ENV = process.env.NODE_ENV || "development";
 const SERVE_STATIC = process.env.SERVE_STATIC !== "false";
+const ENABLE_EMBEDDED_WACALLS =
+  process.env.ENABLE_EMBEDDED_WACALLS !== undefined
+    ? process.env.ENABLE_EMBEDDED_WACALLS === "true"
+    : NODE_ENV !== "production";
+const ENABLE_EMBEDDED_WAHAPLUS =
+  process.env.ENABLE_EMBEDDED_WAHAPLUS !== undefined
+    ? process.env.ENABLE_EMBEDDED_WAHAPLUS === "true"
+    : NODE_ENV !== "production";
 
 // ==========================================
 // Validação de env vars no startup
@@ -281,7 +289,7 @@ async function start() {
     if (process.env.WACALLS_URL) {
       getWaCallsBridge().start();
       logger.info(`WaCalls SSE bridge started -> ${process.env.WACALLS_URL}`);
-    } else {
+    } else if (ENABLE_EMBEDDED_WACALLS) {
       logger.info("WACALLS_URL not set. Attempting embedded WaCalls...");
       try {
         wacallsProcess = await startEmbeddedWaCalls();
@@ -293,12 +301,14 @@ async function start() {
         logger.info(`Embedded WaCalls not available: ${err.message}`);
         logger.info("Set WACALLS_URL or install Go 1.26+ to enable calls");
       }
+    } else {
+      logger.info("WACALLS_URL not set and embedded WaCalls disabled.");
     }
 
     if (process.env.WAHAPLUS_URL) {
       getWahaplusBridge().start();
       logger.info(`WAHA+ SSE bridge started -> ${process.env.WAHAPLUS_URL}`);
-    } else {
+    } else if (ENABLE_EMBEDDED_WAHAPLUS) {
       logger.info("WAHAPLUS_URL not set. Attempting embedded WAHA+...");
       try {
         wahaplusProcess = await startEmbeddedWahaplus();
@@ -310,6 +320,8 @@ async function start() {
         logger.info(`Embedded WAHA+ not available: ${err.message}`);
         logger.info("Set WAHAPLUS_URL or install Docker to enable WAHA+");
       }
+    } else {
+      logger.info("WAHAPLUS_URL not set and embedded WAHA+ disabled.");
     }
   });
 }

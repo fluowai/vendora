@@ -5,7 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    image: ghcr.io/fluowai/vendora/frontend:latest
+      args:
+        VITE_API_URL: "same-origin"
+    image: ghcr.io/vendaora/vendora/frontend:latest
     environment:
       VITE_API_URL: "same-origin"
     networks:
@@ -25,7 +27,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/fluowai/vendora/api:latest
+    image: ghcr.io/vendaora/vendora/api:latest
     environment:
       NODE_ENV: production
       PORT: 3333
@@ -35,6 +37,8 @@ services:
       APP_URL: "https://vendedoraai.consultio.com.br"
       API_URL: "https://vendedoraai.consultio.com.br"
       FRONTEND_URL: "https://vendedoraai.consultio.com.br"
+      ENABLE_EMBEDDED_WACALLS: "false"
+      ENABLE_EMBEDDED_WAHAPLUS: "false"
       JWT_SECRET: "${JWT_SECRET}"
       JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET}"
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
@@ -72,8 +76,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
     networks:
       - vendaora_internal
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

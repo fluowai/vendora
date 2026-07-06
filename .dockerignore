@@ -2,6 +2,7 @@ node_modules
 .git
 .gitignore
 *.md
+*.log
 .env
 .env.*
 dist
@@ -10,6 +11,11 @@ dev.db
 *.db-journal
 node_modules/
 test/
+test-results/
 coverage/
+uploads/
+wacalls/
+wacalls-server/
+whatsmeow-bridge/
 .vscode/
 .idea/

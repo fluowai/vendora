@@ -6,9 +6,9 @@ npx prisma migrate deploy
 echo "[Entrypoint] Migrations complete."
 
 # If WACALLS_URL is not set externally, check if wacalls-server is available
-if [ -z "$WACALLS_URL" ]; then
+if [ -z "$WACALLS_URL" ] && [ "${ENABLE_EMBEDDED_WACALLS:-false}" = "true" ]; then
   if command -v wacalls-server >/dev/null 2>&1; then
-    WACALLS_DB_PATH="${WACALLS_DB_PATH:-/data/wacalls.db}"
+    WACALLS_DB_PATH="${WACALLS_DB_PATH:-/app/data/wacalls.db}"
     WACALLS_PORT="${WACALLS_PORT:-8081}"
     echo "[Entrypoint] Starting embedded WaCalls server on :${WACALLS_PORT}..."
     mkdir -p "$(dirname "$WACALLS_DB_PATH")"
@@ -20,8 +20,10 @@ if [ -z "$WACALLS_URL" ]; then
   else
     echo "[Entrypoint] wacalls-server not found. Calls will be unavailable."
   fi
-else
+elif [ -n "$WACALLS_URL" ]; then
   echo "[Entrypoint] Using external WaCalls at ${WACALLS_URL}"
+else
+  echo "[Entrypoint] Embedded WaCalls disabled. Calls will be unavailable unless WACALLS_URL is set."
 fi
 
 echo "[Entrypoint] Starting application..."
