@@ -7,13 +7,9 @@ import { createServer as createViteServer } from "vite";
 import { createServer as createHttpServer } from "http";
 import dotenv from "dotenv";
 import agentRoutes from "./server/routes/agents.ts";
-import flowRoutes from "./server/routes/flows.ts";
-import toolRoutes from "./server/routes/tools.ts";
-import publicRoutes from "./server/routes/public.ts";
 import marketplaceRoutes from "./server/routes/marketplace.ts";
 import authRoutes from "./server/routes/auth.ts";
 import superadminRoutes from "./server/routes/superadmin.ts";
-import whitelabelRoutes from "./server/routes/whitelabel.ts";
 import conversationRoutes from "./server/routes/conversations.ts";
 import integrationRoutes from "./server/routes/integrations.ts";
 import analyticsRoutes from "./server/routes/analytics.ts";
@@ -31,16 +27,11 @@ import crmRoutes from "./server/routes/crm.ts";
 import ombudsmanRoutes from "./server/routes/ombudsman.ts";
 import uploadRoutes from "./server/routes/upload.ts";
 import callsRoutes from "./server/routes/calls.ts";
-import pabxRoutes from "./server/routes/pabx.ts";
-import mailingRoutes from "./server/routes/mailing.ts";
 import { getWaCallsBridge } from "./server/lib/wacalls-sse.ts";
-import { getWahaplusBridge } from "./server/lib/wahaplus-sse.ts";
 import { ensureWaCallsBuilt, startEmbeddedWaCalls } from "./server/lib/wacalls-process.ts";
-import { startEmbeddedWahaplus, stopWahaplusContainer } from "./server/lib/wahaplus-process.ts";
 import { initSentry } from "./server/lib/sentry.ts";
 
 let wacallsProcess: import("child_process").ChildProcess | null = null;
-let wahaplusProcess: import("child_process").ChildProcess | null = null;
 
 dotenv.config();
 
@@ -52,10 +43,6 @@ const SERVE_STATIC = process.env.SERVE_STATIC !== "false";
 const ENABLE_EMBEDDED_WACALLS =
   process.env.ENABLE_EMBEDDED_WACALLS !== undefined
     ? process.env.ENABLE_EMBEDDED_WACALLS === "true"
-    : NODE_ENV !== "production";
-const ENABLE_EMBEDDED_WAHAPLUS =
-  process.env.ENABLE_EMBEDDED_WAHAPLUS !== undefined
-    ? process.env.ENABLE_EMBEDDED_WAHAPLUS === "true"
     : NODE_ENV !== "production";
 
 // ==========================================
@@ -196,13 +183,6 @@ app.get("/api/health", async (_req, res) => {
     checks.wacalls = "not_configured";
   }
 
-  if (process.env.WAHAPLUS_URL) {
-    checks.wahaplus = "configured";
-    checks.wahaplusConnected = getWahaplusBridge().isConnected ? "yes" : "no";
-  } else {
-    checks.wahaplus = "not_configured";
-  }
-
   res.status(allOk ? 200 : 503).json({
     status: allOk ? "ok" : "degraded",
     version: "2.0.0",
@@ -217,15 +197,11 @@ registerMetricsEndpoint(app);
 
 // API Routes
 app.use("/api/auth", authLimiter, authRoutes);
-app.use("/api/public", publicRoutes);
 app.use("/api/agents", agentRoutes);
-app.use("/api/flows", flowRoutes);
-app.use("/api/tools", toolRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/integrations", integrationRoutes);
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/superadmin", superadminRoutes);
-app.use("/api/whitelabel", whitelabelRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/calendar", calendarRoutes);
@@ -235,8 +211,6 @@ app.use("/api/tickets", ticketsRoutes);
 app.use("/api/crm", crmRoutes);
 app.use("/api/ombudsman", ombudsmanRoutes);
 app.use("/api/calls", callsRoutes);
-app.use("/api/pabx", pabxRoutes);
-app.use("/api/mailing", mailingRoutes);
 
 // Global error handler (must be after routes)
 app.use(errorHandler);
@@ -305,24 +279,6 @@ async function start() {
       logger.info("WACALLS_URL not set and embedded WaCalls disabled.");
     }
 
-    if (process.env.WAHAPLUS_URL) {
-      getWahaplusBridge().start();
-      logger.info(`WAHA+ SSE bridge started -> ${process.env.WAHAPLUS_URL}`);
-    } else if (ENABLE_EMBEDDED_WAHAPLUS) {
-      logger.info("WAHAPLUS_URL not set. Attempting embedded WAHA+...");
-      try {
-        wahaplusProcess = await startEmbeddedWahaplus();
-        if (wahaplusProcess) {
-          getWahaplusBridge().start();
-          logger.info(`WAHA+ SSE bridge started -> ${process.env.WAHAPLUS_URL}`);
-        }
-      } catch (err: any) {
-        logger.info(`Embedded WAHA+ not available: ${err.message}`);
-        logger.info("Set WAHAPLUS_URL or install Docker to enable WAHA+");
-      }
-    } else {
-      logger.info("WAHAPLUS_URL not set and embedded WAHA+ disabled.");
-    }
   });
 }
 
@@ -359,13 +315,6 @@ async function gracefulShutdown(signal: string) {
       logger.error("WaCalls bridge stop error", { error: e });
     }
 
-    try {
-      getWahaplusBridge().stop();
-      logger.info("WAHA+ SSE bridge stopped");
-    } catch (e) {
-      logger.error("WAHA+ bridge stop error", { error: e });
-    }
-
     if (wacallsProcess) {
       try {
         wacallsProcess.kill("SIGTERM");
@@ -373,16 +322,6 @@ async function gracefulShutdown(signal: string) {
       } catch (e) {
         logger.error("WaCalls process kill error", { error: e });
       }
-    }
-
-    if (wahaplusProcess) {
-      try {
-        wahaplusProcess.kill("SIGTERM");
-      } catch (e) {
-        logger.error("WAHA+ process kill error", { error: e });
-      }
-    } else {
-      stopWahaplusContainer();
     }
 
     try {
