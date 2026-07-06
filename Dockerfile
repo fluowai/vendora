@@ -1,7 +1,7 @@
 FROM node:22-alpine AS node-deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 FROM node-deps AS node-builder
 COPY . .
