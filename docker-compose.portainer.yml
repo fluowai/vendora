@@ -22,6 +22,16 @@ services:
       - "traefik.http.routers.vendaora_frontend.priority=1"
       - "traefik.http.routers.vendaora_frontend.service=vendaora_frontend"
       - "traefik.http.services.vendaora_frontend.loadbalancer.server.port=80"
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=woopanel1"
+        - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`)"
+        - "traefik.http.routers.vendaora_frontend.entrypoints=websecure"
+        - "traefik.http.routers.vendaora_frontend.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.vendaora_frontend.priority=1"
+        - "traefik.http.routers.vendaora_frontend.service=vendaora_frontend"
+        - "traefik.http.services.vendaora_frontend.loadbalancer.server.port=80"
 
   api:
     build:
@@ -71,6 +81,21 @@ services:
       - "traefik.http.routers.vendaora_ws.priority=20"
       - "traefik.http.routers.vendaora_ws.service=vendaora_api"
       - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
+    deploy:
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=woopanel1"
+        - "traefik.http.routers.vendaora_api.rule=(Host(`vendedoraai.consultio.com.br`)) && PathPrefix(`/api`)"
+        - "traefik.http.routers.vendaora_api.entrypoints=websecure"
+        - "traefik.http.routers.vendaora_api.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.vendaora_api.priority=10"
+        - "traefik.http.routers.vendaora_api.service=vendaora_api"
+        - "traefik.http.routers.vendaora_ws.rule=(Host(`vendedoraai.consultio.com.br`)) && PathPrefix(`/socket.io`)"
+        - "traefik.http.routers.vendaora_ws.entrypoints=websecure"
+        - "traefik.http.routers.vendaora_ws.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.vendaora_ws.priority=20"
+        - "traefik.http.routers.vendaora_ws.service=vendaora_api"
+        - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
     depends_on:
       - redis
 
