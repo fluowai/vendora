@@ -1,0 +1,90 @@
+version: "3.8"
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: ghcr.io/fluowai/vendora/frontend:latest
+    environment:
+      VITE_API_URL: "same-origin"
+    networks:
+      - woopanel1
+      - vendaora_internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=woopanel1"
+      - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`)"
+      - "traefik.http.routers.vendaora_frontend.entrypoints=websecure"
+      - "traefik.http.routers.vendaora_frontend.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.vendaora_frontend.priority=1"
+      - "traefik.http.routers.vendaora_frontend.service=vendaora_frontend"
+      - "traefik.http.services.vendaora_frontend.loadbalancer.server.port=80"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/fluowai/vendora/api:latest
+    environment:
+      NODE_ENV: production
+      PORT: 3333
+      SERVE_STATIC: "false"
+      DATABASE_URL: "postgresql://postgres.zzipzmxftkisbzcmytkr:WRrSgfupTJ0IUypm@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+      REDIS_URL: "redis://redis:6379"
+      APP_URL: "https://vendedoraai.consultio.com.br"
+      API_URL: "https://vendedoraai.consultio.com.br"
+      FRONTEND_URL: "https://vendedoraai.consultio.com.br"
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      SUPABASE_URL: "https://zzipzmxftkisbzcmytkr.supabase.co"
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6aXB6bXhmdGtpc2J6Y215dGtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3NTkwODIsImV4cCI6MjA5ODMzNTA4Mn0.bms1r_7qK43WpAOa6cZUm3-L8L8rybqGPF2-ZNWS34k"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+      MINIO_ENDPOINT: "${MINIO_ENDPOINT:-nb.consultio.com.br}"
+      MINIO_PORT: "${MINIO_PORT:-443}"
+      MINIO_USE_SSL: "${MINIO_USE_SSL:-true}"
+      MINIO_BUCKET: "${MINIO_BUCKET:-vendedoraaiwpp}"
+      MINIO_PUBLIC_URL: "${MINIO_PUBLIC_URL:-https://nb.consultio.com.br}"
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY}"
+    networks:
+      - woopanel1
+      - vendaora_internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=woopanel1"
+      - "traefik.http.routers.vendaora_api.rule=(Host(`vendedoraai.consultio.com.br`)) && PathPrefix(`/api`)"
+      - "traefik.http.routers.vendaora_api.entrypoints=websecure"
+      - "traefik.http.routers.vendaora_api.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.vendaora_api.priority=10"
+      - "traefik.http.routers.vendaora_api.service=vendaora_api"
+      - "traefik.http.routers.vendaora_ws.rule=(Host(`vendedoraai.consultio.com.br`)) && PathPrefix(`/socket.io`)"
+      - "traefik.http.routers.vendaora_ws.entrypoints=websecure"
+      - "traefik.http.routers.vendaora_ws.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.vendaora_ws.priority=20"
+      - "traefik.http.routers.vendaora_ws.service=vendaora_api"
+      - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - vendaora_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis_data:
+
+networks:
+  woopanel1:
+    external: true
+  vendaora_internal:
+    driver: overlay
