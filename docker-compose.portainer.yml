@@ -16,7 +16,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=woopanel1"
-      - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`)"
+      - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`) && !PathPrefix(`/api`) && !PathPrefix(`/socket.io`) && !PathPrefix(`/uploads`)"
       - "traefik.http.routers.vendaora_frontend.entrypoints=websecure"
       - "traefik.http.routers.vendaora_frontend.tls.certresolver=letsencryptresolver"
       - "traefik.http.routers.vendaora_frontend.priority=1"
@@ -26,7 +26,7 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=woopanel1"
-        - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`)"
+        - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`) && !PathPrefix(`/api`) && !PathPrefix(`/socket.io`) && !PathPrefix(`/uploads`)"
         - "traefik.http.routers.vendaora_frontend.entrypoints=websecure"
         - "traefik.http.routers.vendaora_frontend.tls.certresolver=letsencryptresolver"
         - "traefik.http.routers.vendaora_frontend.priority=1"
@@ -80,6 +80,11 @@ services:
       - "traefik.http.routers.vendaora_ws.tls.certresolver=letsencryptresolver"
       - "traefik.http.routers.vendaora_ws.priority=20"
       - "traefik.http.routers.vendaora_ws.service=vendaora_api"
+      - "traefik.http.routers.vendaora_uploads.rule=(Host(`vendedoraai.consultio.com.br`)) && PathPrefix(`/uploads`)"
+      - "traefik.http.routers.vendaora_uploads.entrypoints=websecure"
+      - "traefik.http.routers.vendaora_uploads.tls.certresolver=letsencryptresolver"
+      - "traefik.http.routers.vendaora_uploads.priority=10"
+      - "traefik.http.routers.vendaora_uploads.service=vendaora_api"
       - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
     deploy:
       labels:
@@ -95,6 +100,11 @@ services:
         - "traefik.http.routers.vendaora_ws.tls.certresolver=letsencryptresolver"
         - "traefik.http.routers.vendaora_ws.priority=20"
         - "traefik.http.routers.vendaora_ws.service=vendaora_api"
+        - "traefik.http.routers.vendaora_uploads.rule=(Host(`vendedoraai.consultio.com.br`)) && PathPrefix(`/uploads`)"
+        - "traefik.http.routers.vendaora_uploads.entrypoints=websecure"
+        - "traefik.http.routers.vendaora_uploads.tls.certresolver=letsencryptresolver"
+        - "traefik.http.routers.vendaora_uploads.priority=10"
+        - "traefik.http.routers.vendaora_uploads.service=vendaora_api"
         - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
     depends_on:
       - redis
