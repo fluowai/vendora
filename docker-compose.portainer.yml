@@ -16,7 +16,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=woopanel1"
-      - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`) && !PathPrefix(`/api`) && !PathPrefix(`/socket.io`) && !PathPrefix(`/uploads`)"
+      - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`)"
       - "traefik.http.routers.vendaora_frontend.entrypoints=websecure"
       - "traefik.http.routers.vendaora_frontend.tls.certresolver=letsencryptresolver"
       - "traefik.http.routers.vendaora_frontend.priority=1"
@@ -26,7 +26,7 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=woopanel1"
-        - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`) && !PathPrefix(`/api`) && !PathPrefix(`/socket.io`) && !PathPrefix(`/uploads`)"
+        - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`)"
         - "traefik.http.routers.vendaora_frontend.entrypoints=websecure"
         - "traefik.http.routers.vendaora_frontend.tls.certresolver=letsencryptresolver"
         - "traefik.http.routers.vendaora_frontend.priority=1"
