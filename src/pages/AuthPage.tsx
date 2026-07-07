@@ -3,6 +3,27 @@ import { useNavigate } from "react-router-dom"
 import { Bot, Mail, Lock, Chrome, ArrowRight, AlertCircle, Loader2 } from "lucide-react"
 import { motion } from "motion/react"
 
+async function readAuthResponse(res: Response) {
+  const text = await res.text()
+  const contentType = res.headers.get("content-type") || ""
+
+  if (contentType.includes("application/json") && text) {
+    try {
+      return JSON.parse(text)
+    } catch {
+      throw new Error("Resposta invalida do servidor de autenticacao")
+    }
+  }
+
+  if (!res.ok) {
+    const status = res.status ? `Erro ${res.status}` : "Erro"
+    const statusText = res.statusText ? `: ${res.statusText}` : ""
+    throw new Error(`${status}${statusText}. A API de autenticacao nao respondeu em JSON.`)
+  }
+
+  throw new Error("Resposta vazia do servidor de autenticacao")
+}
+
 export default function AuthPage() {
   const navigate = useNavigate()
   const [isLogin, setIsLogin] = useState(true)
@@ -28,7 +49,7 @@ export default function AuthPage() {
         body: JSON.stringify(body),
       })
 
-      const data = await res.json()
+      const data = await readAuthResponse(res)
       if (!res.ok) throw new Error(data.error || "Erro na autenticação")
 
       localStorage.setItem("vendaora_token", data.token)
