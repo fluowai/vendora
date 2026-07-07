@@ -1,9 +1,20 @@
 #!/bin/sh
 set -e
 
-echo "[Entrypoint] Running database migrations..."
-npx prisma migrate deploy
-echo "[Entrypoint] Migrations complete."
+if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
+  echo "[Entrypoint] Running database migrations..."
+  RUNTIME_DATABASE_URL="${DATABASE_URL:-}"
+  if [ -n "${MIGRATE_DATABASE_URL:-}" ]; then
+    export DATABASE_URL="${MIGRATE_DATABASE_URL}"
+  fi
+  timeout "${MIGRATE_TIMEOUT_SECONDS:-120}" npx prisma migrate deploy
+  if [ -n "${RUNTIME_DATABASE_URL}" ]; then
+    export DATABASE_URL="${RUNTIME_DATABASE_URL}"
+  fi
+  echo "[Entrypoint] Migrations complete."
+else
+  echo "[Entrypoint] Skipping database migrations. Set RUN_MIGRATIONS=true to run them."
+fi
 
 # If WACALLS_URL is not set externally, check if wacalls-server is available
 if [ -z "$WACALLS_URL" ] && [ "${ENABLE_EMBEDDED_WACALLS:-false}" = "true" ]; then
