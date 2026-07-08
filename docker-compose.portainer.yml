@@ -152,21 +152,19 @@ services:
 
   whatsmeow-bridge:
     image: golang:1.25-alpine
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      set -e
-      apk add --no-cache git ca-certificates tzdata build-base
-      if [ ! -x /data/bridge ]; then
-        rm -rf /src
-        git clone --depth 1 https://github.com/fluowai/vendora.git /src
-        cd /src/whatsmeow-bridge
-        go build -o /data/bridge .
-      fi
-      while true; do
-        /data/bridge
-        echo "whatsmeow bridge exited, restarting in 5s"
-        sleep 5
-      done
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        apk add --no-cache git ca-certificates tzdata build-base
+        if [ ! -x /data/bridge ]; then
+          rm -rf /src
+          git clone --depth 1 https://github.com/fluowai/vendora.git /src
+          cd /src/whatsmeow-bridge
+          go build -o /data/bridge .
+        fi
+        exec /data/bridge
     environment:
       - "PORT=4000"
       - "WHATSMEOW_DB_PATH=file:/data/whatsmeow-v2.db?_pragma=foreign_keys(1)"
