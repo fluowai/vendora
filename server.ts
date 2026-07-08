@@ -144,6 +144,13 @@ app.get("/favicon.ico", (_req, res) => {
   res.redirect(302, "/favicon.svg");
 });
 
+app.get("/api/health/live", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Global rate limiter
 app.use("/api/", apiLimiter);
 
