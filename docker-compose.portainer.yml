@@ -38,6 +38,9 @@ services:
       NODE_ENV: production
       PORT: 3333
       SERVE_STATIC: "false"
+      RUN_MIGRATIONS: "${RUN_MIGRATIONS:-false}"
+      MIGRATE_DATABASE_URL: "${MIGRATE_DATABASE_URL:-}"
+      MIGRATE_TIMEOUT_SECONDS: "${MIGRATE_TIMEOUT_SECONDS:-120}"
       DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
       REDIS_URL: "redis://redis:6379"
       APP_URL: "https://vendedoraai.consultio.com.br"
