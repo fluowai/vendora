@@ -4,28 +4,28 @@ services:
   frontend:
     image: ghcr.io/fluowai/vendora/frontend:latest
     environment:
-      VITE_API_URL: "same-origin"
+      - "VITE_API_URL=same-origin"
     networks:
-      - woopanel1
-      - vendaora_internal
+      woopanel1: {}
+      vendaora_internal: {}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=woopanel1"
-      - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`) && !PathPrefix(`/api`) && !PathPrefix(`/socket.io`) && !PathPrefix(`/uploads`)"
+      - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`)"
       - "traefik.http.routers.vendaora_frontend.entrypoints=websecure"
       - "traefik.http.routers.vendaora_frontend.tls.certresolver=letsencryptresolver"
       - "traefik.http.routers.vendaora_frontend.priority=1"
       - "traefik.http.routers.vendaora_frontend.service=vendaora_frontend"
       - "traefik.http.services.vendaora_frontend.loadbalancer.server.port=80"
     deploy:
+      replicas: 1
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 5
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=woopanel1"
-        - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`) && !PathPrefix(`/api`) && !PathPrefix(`/socket.io`) && !PathPrefix(`/uploads`)"
+        - "traefik.http.routers.vendaora_frontend.rule=Host(`vendedoraai.consultio.com.br`)"
         - "traefik.http.routers.vendaora_frontend.entrypoints=websecure"
         - "traefik.http.routers.vendaora_frontend.tls.certresolver=letsencryptresolver"
         - "traefik.http.routers.vendaora_frontend.priority=1"
@@ -35,39 +35,65 @@ services:
   api:
     image: ghcr.io/fluowai/vendora/api:latest
     environment:
-      NODE_ENV: production
-      PORT: 3333
-      SERVE_STATIC: "false"
-      RUN_MIGRATIONS: "${RUN_MIGRATIONS:-false}"
-      MIGRATE_DATABASE_URL: "${MIGRATE_DATABASE_URL:-}"
-      MIGRATE_TIMEOUT_SECONDS: "${MIGRATE_TIMEOUT_SECONDS:-120}"
-      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required}"
-      REDIS_URL: "redis://redis:6379"
-      APP_URL: "https://vendedoraai.consultio.com.br"
-      API_URL: "https://vendedoraai.consultio.com.br"
-      FRONTEND_URL: "https://vendedoraai.consultio.com.br"
-      ENABLE_EMBEDDED_WACALLS: "false"
-      ENABLE_EMBEDDED_WAHAPLUS: "false"
-      WHATSMEOW_BRIDGE_URL: "http://whatsmeow-bridge:4000"
-      WHATSMEOW_WEBHOOK_URL: "http://api:3333/api/integrations/whatsmeow/incoming?tenantId=${WHATSMEOW_TENANT_ID:-seed-tenant}"
-      WHATSMEOW_BRIDGE_SECRET: "${WHATSMEOW_BRIDGE_SECRET:?WHATSMEOW_BRIDGE_SECRET is required}"
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
-      JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}"
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      GROQ_API_KEY: "${GROQ_API_KEY:-}"
-      SUPABASE_URL: "${SUPABASE_URL:-}"
-      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
-      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
-      MINIO_ENDPOINT: "${MINIO_ENDPOINT:-nb.consultio.com.br}"
-      MINIO_PORT: "${MINIO_PORT:-443}"
-      MINIO_USE_SSL: "${MINIO_USE_SSL:-true}"
-      MINIO_BUCKET: "${MINIO_BUCKET:-vendedoraaiwpp}"
-      MINIO_PUBLIC_URL: "${MINIO_PUBLIC_URL:-https://nb.consultio.com.br}"
-      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}"
-      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}"
-      SENTRY_DSN: "${SENTRY_DSN:-}"
+      - "NODE_ENV=production"
+      - "PORT=3333"
+      - "SERVE_STATIC=false"
+      - "RUN_MIGRATIONS=false"
+      - "MIGRATE_DATABASE_URL="
+      - "DATABASE_URL=postgresql://postgres.zzipzmxftkisbzcmytkr:WRrSgfupTJ0IUypm@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+      - "REDIS_URL=redis://vendedoraai_redis:6379"
+      - "APP_URL=https://vendedoraai.consultio.com.br"
+      - "API_URL=https://vendedoraai.consultio.com.br"
+      - "FRONTEND_URL=https://vendedoraai.consultio.com.br"
+      - "JWT_SECRET=5bb7d5fa8f8f4a2da7f1fb334fc9d6ddc4b438928ee7db2275e41d4f0cda3d83"
+      - "JWT_REFRESH_SECRET=bb0bf63f527d4f12825a0be14d799dd5eb51c5e6e3c8ac5887b08374538d2e0e"
+      - "ENABLE_EMBEDDED_WACALLS=false"
+      - "ENABLE_EMBEDDED_WAHAPLUS=false"
+      - "VOICE_GATEWAY=wacalls"
+      - "WACALLS_URL="
+      - "WACALLS_PORT=8081"
+      - "WACALLS_DB_PATH=/data/wacalls.db"
+      - "WAHAPLUS_URL="
+      - "WAHAPLUS_PORT=3000"
+      - "WAHAPLUS_IMAGE=devlikeapro/waha"
+      - "WAHAPLUS_LICENSE="
+      - "WHATSMEOW_BRIDGE_URL=http://vendedoraai_whatsmeow-bridge:4000"
+      - "WHATSMEOW_WEBHOOK_URL=http://vendedoraai_api:3333/api/integrations/whatsmeow/incoming?tenantId=seed-tenant"
+      - "WHATSMEOW_BRIDGE_SECRET=vendora-whatsmeow-secret-2026"
+      - "WHATSMEOW_PAIR_DISPLAY_NAME=Chrome (Windows)"
+      - "DIALER_CALLS_PER_MINUTE=10"
+      - "DIALER_DEFAULT_SESSION_ID="
+      - "GEMINI_API_KEY="
+      - "OPENAI_API_KEY="
+      - "ANTHROPIC_API_KEY="
+      - "GROQ_API_KEY="
+      - "SUPABASE_URL=https://zzipzmxftkisbzcmytkr.supabase.co"
+      - "SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp6aXB6bXhmdGtpc2J6Y215dGtyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3NTkwODIsImV4cCI6MjA5ODMzNTA4Mn0.bms1r_7qK43WpAOa6cZUm3-L8L8rybqGPF2-ZNWS34k"
+      - "SUPABASE_SERVICE_ROLE_KEY="
+      - "SUPABASE_STORAGE_BUCKET=vendora-assets"
+      - "MINIO_ENDPOINT=nb.consultio.com.br"
+      - "MINIO_PORT=443"
+      - "MINIO_USE_SSL=true"
+      - "MINIO_BUCKET=vendedoraaiwpp"
+      - "MINIO_PUBLIC_URL=https://nb.consultio.com.br"
+      - "MINIO_ACCESS_KEY="
+      - "MINIO_SECRET_KEY="
+      - "MINIO_REGION=us-east-1"
+      - "META_APP_ID="
+      - "META_APP_SECRET="
+      - "META_VERIFY_TOKEN=vendaora_verify"
+      - "WHATSAPP_CLOUD_TOKEN="
+      - "WHATSAPP_PHONE_NUMBER_ID="
+      - "GOOGLE_CLIENT_ID="
+      - "GOOGLE_CLIENT_SECRET="
+      - "SMTP_HOST="
+      - "SMTP_PORT="
+      - "SMTP_USER="
+      - "SMTP_PASS="
+      - "WEBHOOK_SECRET="
+      - "CHATWOOT_WEBHOOK_SECRET="
+      - "ENCRYPTION_KEY="
+      - "SENTRY_DSN="
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3333/api/health/live"]
       interval: 30s
@@ -75,8 +101,11 @@ services:
       start_period: 180s
       retries: 5
     networks:
-      - woopanel1
-      - vendaora_internal
+      woopanel1: {}
+      vendaora_internal:
+        aliases:
+          - api
+          - vendedoraai_api
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=woopanel1"
@@ -97,10 +126,10 @@ services:
       - "traefik.http.routers.vendaora_uploads.service=vendaora_api"
       - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
     deploy:
+      replicas: 1
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 5
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=woopanel1"
@@ -120,51 +149,69 @@ services:
         - "traefik.http.routers.vendaora_uploads.priority=10"
         - "traefik.http.routers.vendaora_uploads.service=vendaora_api"
         - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
-    depends_on:
-      - redis
-      - whatsmeow-bridge
 
   whatsmeow-bridge:
-    image: ghcr.io/fluowai/vendora/whatsmeow-bridge:latest
+    image: golang:1.25-alpine
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        apk add --no-cache git ca-certificates tzdata build-base
+        if [ ! -x /data/bridge ]; then
+          rm -rf /src
+          git clone --depth 1 https://github.com/fluowai/vendora.git /src
+          cd /src/whatsmeow-bridge
+          go build -o /data/bridge .
+        fi
+        exec /data/bridge
     environment:
-      PORT: "4000"
-      WHATSMEOW_DB_PATH: "file:/data/whatsmeow.db?_pragma=foreign_keys(1)"
-      WHATSMEOW_WEBHOOK_URL: "http://api:3333/api/integrations/whatsmeow/incoming?tenantId=${WHATSMEOW_TENANT_ID:-seed-tenant}"
-      WHATSMEOW_BRIDGE_SECRET: "${WHATSMEOW_BRIDGE_SECRET:?WHATSMEOW_BRIDGE_SECRET is required}"
-      WHATSMEOW_PAIR_DISPLAY_NAME: "${WHATSMEOW_PAIR_DISPLAY_NAME:-Chrome (Windows)}"
-    networks:
-      - vendaora_internal
+      - "PORT=4000"
+      - "WHATSMEOW_DB_PATH=file:/data/whatsmeow-v2.db?_pragma=foreign_keys(1)"
+      - "WHATSMEOW_WEBHOOK_URL=http://vendedoraai_api:3333/api/integrations/whatsmeow/incoming?tenantId=seed-tenant"
+      - "WHATSMEOW_BRIDGE_SECRET=vendora-whatsmeow-secret-2026"
+      - "WHATSMEOW_PAIR_DISPLAY_NAME=Chrome (Windows)"
     volumes:
       - whatsmeow_data:/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 30s
       timeout: 5s
-      start_period: 30s
+      start_period: 240s
       retries: 5
+    networks:
+      woopanel1: {}
+      vendaora_internal:
+        aliases:
+          - whatsmeow-bridge
+          - vendedoraai_whatsmeow-bridge
     deploy:
+      replicas: 1
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 5
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
-    networks:
-      - vendaora_internal
     volumes:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
+      start_period: 20s
       retries: 5
+    networks:
+      vendaora_internal:
+        aliases:
+          - redis
+          - vendedoraai_redis
     deploy:
+      replicas: 1
       restart_policy:
         condition: any
         delay: 5s
-        max_attempts: 5
 
 volumes:
   redis_data:
@@ -175,3 +222,4 @@ networks:
     external: true
   vendaora_internal:
     driver: overlay
+    attachable: true
