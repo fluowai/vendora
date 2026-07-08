@@ -60,9 +60,14 @@ jobs:
       matrix:
         service:
           - name: api
+            context: .
             dockerfile: Dockerfile
           - name: frontend
+            context: .
             dockerfile: Dockerfile.frontend
+          - name: whatsmeow-bridge
+            context: ./whatsmeow-bridge
+            dockerfile: ./whatsmeow-bridge/Dockerfile
     steps:
       - uses: actions/checkout@v4
 
@@ -85,7 +90,7 @@ jobs:
 
       - uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -103,6 +108,7 @@ jobs:
           echo "Images pushed:"
           echo "  ${{ env.IMAGE_NAMESPACE }}/api:latest"
           echo "  ${{ env.IMAGE_NAMESPACE }}/frontend:latest"
+          echo "  ${{ env.IMAGE_NAMESPACE }}/whatsmeow-bridge:latest"
 
   deploy-production:
     needs: [build-and-push]
@@ -115,3 +121,4 @@ jobs:
           echo "Images pushed:"
           echo "  ${{ env.IMAGE_NAMESPACE }}/api:latest"
           echo "  ${{ env.IMAGE_NAMESPACE }}/frontend:latest"
+          echo "  ${{ env.IMAGE_NAMESPACE }}/whatsmeow-bridge:latest"

@@ -28,6 +28,6 @@ ENV NODE_ENV=production
 ENV WACALLS_URL=
 ENV ENABLE_EMBEDDED_WACALLS=false
 ENV ENABLE_EMBEDDED_WAHAPLUS=false
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:3333/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=5 \
+  CMD curl -f http://localhost:3333/api/health/live || exit 1
 ENTRYPOINT ["/docker-entrypoint.sh"]
