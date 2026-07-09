@@ -3,16 +3,24 @@ import { Readable } from "stream";
 import crypto from "crypto";
 import { logger } from "./logger.ts";
 
-const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT || "localhost";
+const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT?.trim() || "localhost";
 const MINIO_PORT = parseInt(process.env.MINIO_PORT || "9000", 10);
-const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || "minioadmin";
-const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || "minioadmin";
+const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY?.trim() || "minioadmin";
+const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY?.trim() || "minioadmin";
 const MINIO_BUCKET = process.env.MINIO_BUCKET || "vendora-media";
 const MINIO_USE_SSL = process.env.MINIO_USE_SSL === "true";
 const MINIO_PUBLIC_URL = (process.env.MINIO_PUBLIC_URL || `http://localhost:${MINIO_PORT}`).replace(/\/$/, "");
 
 let client: MinioClient | null = null;
 let bucketReady = false;
+
+function hasMinioConfig() {
+  return !!(
+    process.env.MINIO_ENDPOINT?.trim()
+    && process.env.MINIO_ACCESS_KEY?.trim()
+    && process.env.MINIO_SECRET_KEY?.trim()
+  );
+}
 
 function getClient(): MinioClient {
   if (!client) {
@@ -43,14 +51,15 @@ export async function uploadBuffer(
   mimeType: string,
   prefix = "general",
 ): Promise<{ url: string; key: string }> {
-  if (!process.env.MINIO_ENDPOINT && !process.env.MINIO_ACCESS_KEY) {
+  if (!hasMinioConfig()) {
     const localDir = process.env.UPLOAD_DIR || "./uploads";
     const fs = await import("fs");
     const path = await import("path");
     fs.mkdirSync(localDir, { recursive: true });
-    const ext = mimeType.split("/")[1] || "bin";
+    const ext = (mimeType.split("/")[1] || "bin").split(/[+;]/)[0];
     const filename = `${prefix}-${crypto.randomUUID()}.${ext}`;
     const filePath = path.join(localDir, filename);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, buffer);
     const url = `/uploads/${filename}`;
     return { url, key: filename };
@@ -70,7 +79,7 @@ export async function uploadStream(
   mimeType: string,
   prefix = "general",
 ): Promise<{ url: string; key: string }> {
-  if (!process.env.MINIO_ENDPOINT && !process.env.MINIO_ACCESS_KEY) {
+  if (!hasMinioConfig()) {
     const chunks: Buffer[] = [];
     for await (const chunk of stream) {
       chunks.push(Buffer.from(chunk));
@@ -87,7 +96,7 @@ export async function uploadStream(
 }
 
 export async function deleteObject(key: string): Promise<void> {
-  if (!process.env.MINIO_ENDPOINT && !process.env.MINIO_ACCESS_KEY) {
+  if (!hasMinioConfig()) {
     return;
   }
   await ensureBucket();
@@ -103,5 +112,6 @@ export async function downloadFromUrl(url: string): Promise<Buffer> {
 }
 
 export function getPublicUrl(key: string): string {
+  if (!hasMinioConfig()) return `/uploads/${key}`;
   return `${MINIO_PUBLIC_URL}/${MINIO_BUCKET}/${key}`;
 }

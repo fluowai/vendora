@@ -185,15 +185,31 @@ export function setupWorkers() {
       ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
     } as Record<string, string>);
 
+    const isLidJid = (value?: string | null) => /@lid$/i.test(String(value || ""));
+    const phoneToWhatsAppJid = (value?: string | null) => {
+      const phone = String(value || "").replace(/\D/g, "");
+      return phone.length >= 10 ? `${phone}@s.whatsapp.net` : null;
+    };
+
     const getRemoteJid = (conv: any) => {
       const messageWithRemote = conv.messages
         ?.slice()
         .reverse()
         .find((message: any) => message.metadata?.remoteJid || message.metadata?.chatJid);
-      return messageWithRemote?.metadata?.remoteJid
-        || messageWithRemote?.metadata?.chatJid
-        || conv.contact?.identities?.find((i: any) => i.provider === "whatsmeow")?.externalId
-        || conv.contact?.phone;
+      const metadata = messageWithRemote?.metadata || {};
+      const remoteJid = metadata.chatPhoneJid
+        || metadata.senderPhoneJid
+        || (!isLidJid(metadata.remoteJid) ? metadata.remoteJid : null)
+        || (!isLidJid(metadata.chatJid) ? metadata.chatJid : null);
+      const identityJid = conv.contact?.identities
+        ?.find((i: any) => i.provider === "whatsmeow" && !isLidJid(i.externalId))?.externalId;
+      const fallbackLid = metadata.remoteJid
+        || metadata.chatJid
+        || conv.contact?.identities?.find((i: any) => i.provider === "whatsmeow")?.externalId;
+      return remoteJid
+        || identityJid
+        || phoneToWhatsAppJid(conv.contact?.phone)
+        || fallbackLid;
     };
 
     const effectiveMediaUrl = mediaUrl || metadata?.mediaUrl;

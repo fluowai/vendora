@@ -130,24 +130,83 @@ function asString(value: unknown, fallback = "") {
 }
 
 function isWhatsAppGroupJid(value: string) {
-  return value.endsWith("@g.us");
+  return asString(value).toLowerCase().endsWith("@g.us");
 }
 
 function isLid(value: string) {
-  return /@lid$/i.test(value);
+  return /@lid$/i.test(asString(value).trim());
+}
+
+function bareWhatsAppJid(value: string) {
+  const trimmed = asString(value).trim();
+  if (!trimmed || !trimmed.includes("@")) return trimmed;
+
+  const [userPart, ...serverParts] = trimmed.split("@");
+  const server = serverParts.join("@").toLowerCase();
+  if (["s.whatsapp.net", "c.us", "lid"].includes(server)) {
+    return `${userPart.split(/[.:]/)[0]}@${server}`;
+  }
+  return trimmed;
 }
 
 function jidToPhone(value: string) {
-  const cleaned = asString(value).replace(/@.+$/, "").replace(/\D/g, "");
+  const bare = bareWhatsAppJid(value);
+  if (isLid(bare) || isWhatsAppGroupJid(bare)) return "";
+  const user = bare.includes("@") ? bare.split("@")[0] : bare;
+  const cleaned = user.replace(/\D/g, "");
   return cleaned.length >= 10 ? cleaned : "";
 }
 
 function normalizeWhatsAppJid(value: string) {
-  const trimmed = asString(value).trim();
+  const trimmed = bareWhatsAppJid(value);
   if (!trimmed || isLid(trimmed)) return "";
   if (trimmed.includes("@")) return trimmed;
   const phone = jidToPhone(trimmed);
   return phone ? `${phone}@s.whatsapp.net` : "";
+}
+
+function normalizeJidCandidate(value: string) {
+  const trimmed = bareWhatsAppJid(value);
+  if (!trimmed) return "";
+  if (trimmed.includes("@")) return trimmed;
+  const phone = jidToPhone(trimmed);
+  return phone ? `${phone}@s.whatsapp.net` : "";
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => asString(value).trim()).filter(Boolean))];
+}
+
+function firstJid(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = normalizeJidCandidate(asString(value));
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function firstNonLidJid(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = normalizeJidCandidate(asString(value));
+    if (normalized && !isLid(normalized)) return normalized;
+  }
+  return "";
+}
+
+function firstLidJid(...values: unknown[]) {
+  for (const value of values) {
+    const normalized = normalizeJidCandidate(asString(value));
+    if (normalized && isLid(normalized)) return normalized;
+  }
+  return "";
+}
+
+function phoneFromJids(...values: unknown[]) {
+  for (const value of values) {
+    const phone = jidToPhone(asString(value));
+    if (phone) return phone;
+  }
+  return "";
 }
 
 function displayWhatsAppIdentity(input: { pushName?: string; senderName?: string; jid?: string; fallback?: string }) {
@@ -222,33 +281,158 @@ async function getOrCreateProviderInstance(tenantId: string, provider: string, n
   });
 }
 
+function isPhoneLikeLabel(value: string) {
+  const trimmed = asString(value).trim();
+  const digits = trimmed.replace(/\D/g, "");
+  return digits.length >= 10 && digits === trimmed.replace(/\D/g, "");
+}
+
+function betterContactName(current: string | null | undefined, incoming: string | null | undefined, phone?: string | null) {
+  const next = asString(incoming).trim();
+  if (!next || isLid(next) || next === current) return undefined;
+
+  const existing = asString(current).trim();
+  if (!existing || existing === "Contato Chatwoot" || existing === "Contato WhatsApp") return next;
+  if (phone && existing === phone) return next;
+  if (isPhoneLikeLabel(existing) && !isPhoneLikeLabel(next)) return next;
+  if (isPhoneLikeLabel(next) && !isPhoneLikeLabel(existing)) return undefined;
+  return next;
+}
+
+async function ensureContactIdentities(input: {
+  tenantId: string
+  contactId: string
+  channel: string
+  provider: string
+  externalIds: string[]
+  username?: string | null
+  phone?: string | null
+  email?: string | null
+  metadata?: any
+}) {
+  for (const externalId of uniqueStrings(input.externalIds)) {
+    const existing = await prisma.contactIdentity.findFirst({
+      where: { tenantId: input.tenantId, provider: input.provider, externalId },
+      select: { id: true, contactId: true, username: true, phone: true, email: true },
+    });
+
+    if (!existing) {
+      await prisma.contactIdentity.create({
+        data: {
+          tenantId: input.tenantId,
+          contactId: input.contactId,
+          channel: input.channel,
+          provider: input.provider,
+          externalId,
+          username: input.username || null,
+          phone: input.phone || null,
+          email: input.email || null,
+          metadata: input.metadata || {},
+        },
+      });
+      continue;
+    }
+
+    if (
+      existing.contactId !== input.contactId
+      || (input.username && input.username !== existing.username)
+      || (input.phone && input.phone !== existing.phone)
+      || (input.email && input.email !== existing.email)
+    ) {
+      await prisma.contactIdentity.update({
+        where: { id: existing.id },
+        data: {
+          contactId: input.contactId,
+          ...(input.username ? { username: input.username } : {}),
+          ...(input.phone ? { phone: input.phone } : {}),
+          ...(input.email ? { email: input.email } : {}),
+          metadata: input.metadata || {},
+        },
+      });
+    }
+  }
+}
+
 async function getOrCreateContact(tenantId: string, provider: string, channel: string, externalId: string, payload: any) {
-  const existingIdentity = externalId
-    ? await prisma.contactIdentity.findFirst({ where: { tenantId, provider, externalId }, include: { contact: true } })
+  const aliasExternalIds = uniqueStrings([
+    externalId,
+    ...(Array.isArray(payload?.aliasExternalIds) ? payload.aliasExternalIds : []),
+  ]);
+  const name = payload?.name || payload?.sender?.name || payload?.contact?.name || "Contato Chatwoot";
+  const email = payload?.email || payload?.sender?.email || payload?.contact?.email;
+  const phone = payload?.phone_number || payload?.phone || payload?.sender?.phone_number || payload?.contact?.phone_number;
+  const pushName = payload?.pushName || null;
+
+  const existingIdentity = aliasExternalIds.length
+    ? await prisma.contactIdentity.findFirst({
+        where: { tenantId, provider, OR: aliasExternalIds.map((id) => ({ externalId: id })) },
+        include: { contact: true },
+      })
     : null;
 
   if (existingIdentity?.contact) {
-    const betterName = payload?.name && payload.name !== existingIdentity.contact.name ? payload.name : undefined;
-    const betterPhone = payload?.phone && payload.phone !== existingIdentity.contact.phone ? payload.phone : undefined;
+    const betterName = betterContactName(existingIdentity.contact.name, name, phone);
+    const betterPhone = phone && phone !== existingIdentity.contact.phone ? phone : undefined;
     const avatarUrl = payload?.avatarUrl && payload.avatarUrl !== existingIdentity.contact.avatarUrl ? payload.avatarUrl : undefined;
-    const pushName = payload?.pushName && payload.pushName !== existingIdentity.contact.pushName ? payload.pushName : undefined;
-    if (betterName || betterPhone || avatarUrl || pushName) {
-      return prisma.contact.update({
+    const betterPushName = pushName && pushName !== existingIdentity.contact.pushName ? pushName : undefined;
+    const contact = betterName || betterPhone || avatarUrl || betterPushName
+      ? await prisma.contact.update({
         where: { id: existingIdentity.contact.id },
         data: {
           ...(betterName ? { name: betterName } : {}),
           ...(betterPhone ? { phone: betterPhone } : {}),
           ...(avatarUrl ? { avatarUrl } : {}),
-          ...(pushName ? { pushName } : {}),
+          ...(betterPushName ? { pushName: betterPushName } : {}),
         },
-      });
-    }
-    return existingIdentity.contact;
+      })
+      : existingIdentity.contact;
+
+    await ensureContactIdentities({
+      tenantId,
+      contactId: contact.id,
+      channel,
+      provider,
+      externalIds: aliasExternalIds,
+      username: name,
+      phone,
+      email,
+      metadata: payload || {},
+    });
+    return contact;
   }
 
-  const name = payload?.name || payload?.sender?.name || payload?.contact?.name || "Contato Chatwoot";
-  const email = payload?.email || payload?.sender?.email || payload?.contact?.email;
-  const phone = payload?.phone_number || payload?.phone || payload?.sender?.phone_number || payload?.contact?.phone_number;
+  const existingContact = phone
+    ? await prisma.contact.findFirst({ where: { tenantId, phone } })
+    : null;
+
+  if (existingContact) {
+    const betterName = betterContactName(existingContact.name, name, phone);
+    const avatarUrl = payload?.avatarUrl && payload.avatarUrl !== existingContact.avatarUrl ? payload.avatarUrl : undefined;
+    const betterPushName = pushName && pushName !== existingContact.pushName ? pushName : undefined;
+    const contact = betterName || avatarUrl || betterPushName
+      ? await prisma.contact.update({
+        where: { id: existingContact.id },
+        data: {
+          ...(betterName ? { name: betterName } : {}),
+          ...(avatarUrl ? { avatarUrl } : {}),
+          ...(betterPushName ? { pushName: betterPushName } : {}),
+        },
+      })
+      : existingContact;
+
+    await ensureContactIdentities({
+      tenantId,
+      contactId: contact.id,
+      channel,
+      provider,
+      externalIds: aliasExternalIds,
+      username: name,
+      phone,
+      email,
+      metadata: payload || {},
+    });
+    return contact;
+    }
 
   const contact = await prisma.contact.create({
     data: {
@@ -262,21 +446,17 @@ async function getOrCreateContact(tenantId: string, provider: string, channel: s
     },
   });
 
-  if (externalId) {
-    await prisma.contactIdentity.create({
-      data: {
-        tenantId,
-        contactId: contact.id,
-        channel,
-        provider,
-        externalId,
-        username: name,
-        phone,
-        email,
-        metadata: payload || {},
-      },
-    });
-  }
+  await ensureContactIdentities({
+    tenantId,
+    contactId: contact.id,
+    channel,
+    provider,
+    externalIds: aliasExternalIds,
+    username: name,
+    phone,
+    email,
+    metadata: payload || {},
+  });
 
   return contact;
 }
@@ -287,6 +467,7 @@ async function materializeIncomingMessage(input: {
   providerName: string
   instanceId?: string
   externalConversationId: string
+  externalConversationAliases?: string[]
   externalMessageId?: string
   contactExternalId: string
   contactPayload: any
@@ -320,12 +501,16 @@ async function materializeIncomingMessage(input: {
     input.contactExternalId,
     input.contactPayload,
   );
-  const conversationId = stableId(input.provider, input.tenantId, channelInstance.id, input.externalConversationId);
+  const conversationKeys = uniqueStrings([input.externalConversationId, ...(input.externalConversationAliases || [])]);
+  const candidateConversationIds = conversationKeys.map((key) => stableId(input.provider, input.tenantId, channelInstance.id, key));
+  const preferredConversationId = candidateConversationIds[0]
+    || stableId(input.provider, input.tenantId, channelInstance.id, input.externalConversationId);
   const now = new Date();
-  const existingConversation = await prisma.conversation.findUnique({
-    where: { id: conversationId },
+  const existingConversation = await prisma.conversation.findFirst({
+    where: { id: { in: candidateConversationIds.length ? candidateConversationIds : [preferredConversationId] } },
     select: { id: true },
   });
+  const conversationId = existingConversation?.id || preferredConversationId;
 
   const conversation = await prisma.conversation.upsert({
     where: { id: conversationId },
@@ -732,25 +917,46 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
     return;
   }
 
-  const rawFrom = asString(req.body.from || req.body.senderJid || req.body.senderAltJid || req.body.sender || req.body.remoteJid || req.body.jid);
-  const from = normalizeWhatsAppJid(rawFrom) || rawFrom;
-  const chatJid = asString(req.body.chatId || req.body.remoteJid || req.body.conversationId || from);
-  const participantJid = asString(req.body.participantJid || req.body.senderJid || (isWhatsAppGroupJid(chatJid) ? from : ""));
+  const rawFrom = asString(req.body.from || req.body.senderJid || req.body.senderPnJid || req.body.senderAltJid || req.body.sender || req.body.remoteJid || req.body.jid);
+  const rawChatJid = asString(req.body.rawChatJid || req.body.chatId || req.body.remoteJid || req.body.conversationId || rawFrom);
+  const rawGroupJid = firstJid(req.body.chatId, req.body.remoteJid, req.body.conversationId, rawChatJid);
+  const isGroup = req.body.isGroup === true || req.body.chatType === "group" || isWhatsAppGroupJid(rawGroupJid || rawChatJid);
+  const senderPhoneJid = firstNonLidJid(req.body.senderPnJid, req.body.from, req.body.senderJid, req.body.senderAltJid, req.body.sender);
+  const senderLidJid = firstLidJid(req.body.senderLidJid, req.body.from, req.body.senderJid, req.body.senderAltJid, req.body.sender);
+  const chatPhoneJid = isGroup
+    ? ""
+    : firstNonLidJid(req.body.chatPnJid, req.body.phoneJid, req.body.chatId, req.body.remoteJid, req.body.conversationId, senderPhoneJid);
+  const chatLidJid = isGroup
+    ? ""
+    : firstLidJid(req.body.chatLidJid, req.body.chatId, req.body.remoteJid, req.body.conversationId, senderLidJid);
+  const participantPhoneJid = firstNonLidJid(req.body.participantPnJid, req.body.participantJid, senderPhoneJid);
+  const participantLidJid = firstLidJid(req.body.participantLidJid, req.body.participantJid, senderLidJid);
+  const chatJid = isGroup ? (rawGroupJid || rawChatJid) : (chatPhoneJid || senderPhoneJid || chatLidJid || senderLidJid || rawChatJid);
+  const participantJid = isGroup ? (participantPhoneJid || participantLidJid || senderPhoneJid || senderLidJid) : "";
+  const from = senderPhoneJid || (!isGroup ? chatJid : participantJid) || senderLidJid || rawFrom;
   const messageId = asString(req.body.messageId || req.body.id);
   const text = asString(req.body.text || req.body.content || req.body.message?.text || req.body.message?.conversation);
   const conversationKey = chatJid;
   const hasMedia = !!req.body.hasMedia;
   const media = req.body.media || null;
   const messageType = asString(req.body.messageType || (hasMedia ? "media" : "text"));
-  const isGroup = req.body.isGroup === true || req.body.chatType === "group" || isWhatsAppGroupJid(chatJid);
   const chatType = isGroup ? "group" : "private";
-  const senderPhone = jidToPhone(from || participantJid);
+  const senderPhone = isGroup
+    ? phoneFromJids(participantPhoneJid, senderPhoneJid)
+    : phoneFromJids(chatPhoneJid, senderPhoneJid, from);
   const senderDisplayName = displayWhatsAppIdentity({
     pushName: req.body.pushName,
     senderName: req.body.senderName,
-    jid: from || participantJid,
+    jid: senderPhoneJid || chatPhoneJid || from || participantJid,
+    fallback: senderPhone || undefined,
   });
   const groupName = asString(req.body.groupName || req.body.chatName || req.body.name || "Grupo WhatsApp");
+  const contactExternalId = isGroup
+    ? chatJid
+    : (chatPhoneJid || senderPhoneJid || chatLidJid || senderLidJid || from);
+  const aliasExternalIds = isGroup
+    ? uniqueStrings([chatJid, rawGroupJid, rawChatJid])
+    : uniqueStrings([contactExternalId, chatPhoneJid, senderPhoneJid, chatLidJid, senderLidJid, from, rawFrom]);
   const storedMedia = hasMedia ? await persistIncomingMedia(tenantId, messageId, media).catch((error) => {
     logger.error("[Whatsmeow] failed to persist incoming media", { error });
     return null;
@@ -761,19 +967,21 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
     return;
   }
 
-  const { conversation, message, isNewMessage } = await materializeIncomingMessage({
+  const { conversation, contact, channelInstance, message, isNewMessage, isNewConversation } = await materializeIncomingMessage({
     tenantId,
     provider: "whatsmeow",
     providerName: "WhatsApp whatsmeow",
     instanceId,
     externalConversationId: conversationKey,
+    externalConversationAliases: aliasExternalIds,
     externalMessageId: messageId,
-    contactExternalId: isGroup ? chatJid : from,
+    contactExternalId,
     contactPayload: {
       name: isGroup ? groupName : senderDisplayName,
       phone: isGroup ? null : senderPhone,
-      pushName: isGroup ? null : senderDisplayName,
+      pushName: isGroup ? null : asString(req.body.pushName || req.body.senderName || ""),
       avatarUrl: asString(req.body.avatarUrl || ""),
+      aliasExternalIds,
       raw: sanitizeWhatsmeowRaw(req.body),
     },
     content: text || media?.caption || (hasMedia ? `[${messageType}]` : ""),
@@ -787,8 +995,16 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
       event: "whatsmeow.message",
       remoteJid: chatJid,
       chatJid,
+      rawChatJid,
+      rawGroupJid,
+      chatPhoneJid,
+      chatLidJid,
       senderJid: from,
+      senderPhoneJid,
+      senderLidJid,
       participantJid,
+      participantPhoneJid,
+      participantLidJid,
       senderName: senderDisplayName,
       senderPhone,
       groupName,
@@ -804,6 +1020,15 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
   });
 
   if (isNewMessage && message?.senderType === "contact") {
+    emitIncomingRealtime({
+      tenantId,
+      conversation,
+      contact,
+      channelInstance,
+      message,
+      isNewConversation,
+    });
+
     void addMessageJob({
       type: "incoming",
       tenantId,

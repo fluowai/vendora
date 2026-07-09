@@ -60,15 +60,34 @@ function getBridgeHeaders() {
   } as Record<string, string>;
 }
 
+function isLidJid(value?: string | null) {
+  return /@lid$/i.test(String(value || ""));
+}
+
+function phoneToWhatsAppJid(value?: string | null) {
+  const phone = String(value || "").replace(/\D/g, "");
+  return phone.length >= 10 ? `${phone}@s.whatsapp.net` : null;
+}
+
 function getRemoteJid(conversation: any): string | null {
   const messageWithRemote = conversation.messages
     ?.slice()
     .reverse()
     .find((message: any) => message.metadata?.remoteJid || message.metadata?.chatJid);
-  return messageWithRemote?.metadata?.remoteJid
-    || messageWithRemote?.metadata?.chatJid
-    || conversation.contact?.identities?.find((identity: any) => identity.provider === "whatsmeow")?.externalId
-    || conversation.contact?.phone
+  const metadata = messageWithRemote?.metadata || {};
+  const remoteJid = metadata.chatPhoneJid
+    || metadata.senderPhoneJid
+    || (!isLidJid(metadata.remoteJid) ? metadata.remoteJid : null)
+    || (!isLidJid(metadata.chatJid) ? metadata.chatJid : null);
+  const identityJid = conversation.contact?.identities
+    ?.find((identity: any) => identity.provider === "whatsmeow" && !isLidJid(identity.externalId))?.externalId;
+  const fallbackLid = metadata.remoteJid
+    || metadata.chatJid
+    || conversation.contact?.identities?.find((identity: any) => identity.provider === "whatsmeow")?.externalId;
+  return remoteJid
+    || identityJid
+    || phoneToWhatsAppJid(conversation.contact?.phone)
+    || fallbackLid
     || null;
 }
 

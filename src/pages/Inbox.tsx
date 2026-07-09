@@ -167,6 +167,8 @@ export default function Inbox() {
   const openConversation = async (chat: any) => {
     setActiveChat(chat);
     setLeadName(chat.name || "");
+    setEditingName(false);
+    setView("chat");
     try {
       const data = await api.getConversation(chat.id);
       setActiveChat(data.conversation);
@@ -174,6 +176,22 @@ export default function Inbox() {
     } catch (e: any) {
       setError(e.message || "Erro ao abrir conversa");
     }
+  };
+
+  const openInfoPanel = () => {
+    if (!activeChat) return;
+    setView("info");
+  };
+
+  const closeInfoPanel = () => {
+    setView(activeChat ? "chat" : "list");
+  };
+
+  const startEditingName = () => {
+    if (!activeChat) return;
+    setLeadName(activeChat.name || "");
+    setEditingName(true);
+    setView("info");
   };
 
   const sendMessage = async () => {
@@ -573,7 +591,7 @@ export default function Inbox() {
                   <>
                     <span className="truncate">{activeChat?.name || "Selecione uma conversa"}</span>
                     {activeChat && (
-                      <button onClick={() => setEditingName(true)} className="p-1 rounded-md hover:bg-bg text-muted" title="Editar nome do lead">
+                      <button onClick={startEditingName} className="p-1 rounded-md hover:bg-bg text-muted" title="Editar nome do lead">
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                     )}
@@ -599,10 +617,10 @@ export default function Inbox() {
             <button onClick={suggestReply} className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white border border-border rounded-lg text-xs font-bold text-muted hover:text-primary transition-all shadow-sm">
               <Bot className="w-4 h-4" /> Sugerir Resposta
             </button>
-            <button className="p-2 rounded-xl hover:bg-bg text-muted transition-all lg:hidden" onClick={() => setView("info")}>
+            <button className="p-2 rounded-xl hover:bg-bg text-muted transition-all lg:hidden" onClick={openInfoPanel}>
               <Info className="w-5 h-5" />
             </button>
-            <button onClick={() => setView("info")} className="hidden lg:flex p-2 rounded-xl hover:bg-bg text-muted transition-all">
+            <button onClick={openInfoPanel} className="hidden lg:flex p-2 rounded-xl hover:bg-bg text-muted transition-all">
               <MoreVertical className="w-5 h-5" />
             </button>
           </div>
@@ -749,20 +767,16 @@ export default function Inbox() {
         </div>
       </div>
 
-      <div className={cn(
-        "w-full lg:w-[320px] border-l border-border bg-white absolute inset-0 lg:static z-20 transition-all duration-300 overflow-y-auto custom-scrollbar shadow-xl lg:shadow-none",
-        view === "info" ? "translate-x-0" : "translate-x-full lg:translate-x-0",
-        !activeChat && "hidden lg:block opacity-50 pointer-events-none",
-      )}>
-        <div className="flex items-center justify-between lg:hidden p-4 border-b border-border bg-white sticky top-0 z-10">
-          <button onClick={() => setView("chat")} className="p-2 -ml-2 text-muted">
-            <ChevronRight className="w-6 h-6 rotate-180" />
+      {activeChat && view === "info" && (
+      <div className="w-full lg:w-[320px] border-l border-border bg-white absolute inset-0 lg:static z-20 overflow-y-auto custom-scrollbar shadow-xl lg:shadow-none">
+        <div className="flex items-center justify-between p-4 border-b border-border bg-white sticky top-0 z-10">
+          <button onClick={closeInfoPanel} className="p-2 -ml-2 text-muted hover:text-text" title="Fechar detalhes">
+            <X className="w-5 h-5" />
           </button>
           <h3 className="font-bold text-sm">Contato 360</h3>
           <div className="w-10" />
         </div>
 
-        {activeChat ? (
           <div className="p-6 space-y-8">
             <div className="flex flex-col items-center text-center">
               {activeChat.avatarUrl ? (
@@ -774,7 +788,7 @@ export default function Inbox() {
               )}
               <div className="flex items-center gap-2">
                 <h4 className="font-bold text-xl text-text">{activeChat.name}</h4>
-                <button onClick={() => setEditingName(true)} className="p-1.5 rounded-lg hover:bg-bg text-muted" title="Editar nome do lead">
+                <button onClick={startEditingName} className="p-1.5 rounded-lg hover:bg-bg text-muted" title="Editar nome do lead">
                   <Edit2 className="w-4 h-4" />
                 </button>
               </div>
@@ -814,12 +828,8 @@ export default function Inbox() {
               </div>
             </div>
           </div>
-        ) : (
-          <div className="h-full flex items-center justify-center p-6 text-center text-muted">
-            <p className="text-sm">Selecione uma conversa para ver os detalhes 360.</p>
-          </div>
-        )}
       </div>
+      )}
     </div>
   );
 }

@@ -67,6 +67,33 @@ type bridgeState struct {
 	webhookQueue chan webhookJob
 }
 
+type resolvedJID struct {
+	Canonical types.JID
+	Phone     types.JID
+	LID       types.JID
+	Raw       string
+	Alt       string
+}
+
+func jidText(jid types.JID) string {
+	if jid.IsEmpty() {
+		return ""
+	}
+	return jid.ToNonAD().String()
+}
+
+func (identity resolvedJID) canonicalText() string {
+	return jidText(identity.Canonical)
+}
+
+func (identity resolvedJID) phoneText() string {
+	return jidText(identity.Phone)
+}
+
+func (identity resolvedJID) lidText() string {
+	return jidText(identity.LID)
+}
+
 type sendRequest struct {
 	To             string `json:"to"`
 	Text           string `json:"text"`
@@ -494,9 +521,25 @@ func (s *bridgeState) handleIncomingMessage(v *events.Message) {
 
 	mediaInfo := s.extractMediaInfo(msg)
 	hasMedia := mediaInfo != nil
-	chatJID := v.Info.Chat.String()
-	senderJID := resolvePhoneJID(v.Info.Sender, v.Info.SenderAlt)
-	isGroup := strings.HasSuffix(chatJID, "@g.us")
+	rawChatJID := jidText(v.Info.Chat)
+	senderIdentity := s.resolveWhatsAppIdentity(v.Info.Sender, v.Info.SenderAlt)
+	chatIdentity := s.resolveWhatsAppIdentity(v.Info.Chat, v.Info.RecipientAlt)
+	isGroup := v.Info.Chat.Server == types.GroupServer || strings.HasSuffix(rawChatJID, "@g.us")
+	chatJID := rawChatJID
+	if !isGroup {
+		if !chatIdentity.Phone.IsEmpty() {
+			chatJID = chatIdentity.phoneText()
+		} else if !senderIdentity.Phone.IsEmpty() {
+			chatJID = senderIdentity.phoneText()
+			chatIdentity.Phone = senderIdentity.Phone
+		} else if senderIdentity.canonicalText() != "" {
+			chatJID = senderIdentity.canonicalText()
+		}
+	}
+	senderJID := senderIdentity.canonicalText()
+	if senderJID == "" {
+		senderJID = chatJID
+	}
 	chatType := "private"
 	if isGroup {
 		chatType = "group"
@@ -505,21 +548,45 @@ func (s *bridgeState) handleIncomingMessage(v *events.Message) {
 	if isGroup {
 		groupName = s.getGroupName(v.Info.Chat)
 	}
-	avatarURL := s.getProfilePictureURL(v.Info.Chat)
+	avatarJID := v.Info.Chat
+	if !isGroup && !chatIdentity.Phone.IsEmpty() {
+		avatarJID = chatIdentity.Phone
+	}
+	avatarURL := s.getProfilePictureURL(avatarJID)
 
 	payload := map[string]any{
-		"id":           v.Info.ID,
-		"messageId":    v.Info.ID,
-		"from":         senderJID,
-		"senderJid":    senderJID,
-		"senderAltJid": v.Info.SenderAlt.String(),
-		"remoteJid":    chatJID,
-		"chatId":       chatJID,
-		"groupName":    groupName,
-		"avatarUrl":    avatarURL,
+		"id":              v.Info.ID,
+		"messageId":       v.Info.ID,
+		"from":            senderJID,
+		"senderJid":       senderJID,
+		"senderPnJid":     senderIdentity.phoneText(),
+		"senderLidJid":    senderIdentity.lidText(),
+		"senderAltJid":    jidText(v.Info.SenderAlt),
+		"rawSenderJid":    jidText(v.Info.Sender),
+		"remoteJid":       chatJID,
+		"chatId":          chatJID,
+		"chatPnJid":       chatIdentity.phoneText(),
+		"chatLidJid":      chatIdentity.lidText(),
+		"rawChatJid":      rawChatJID,
+		"recipientAltJid": jidText(v.Info.RecipientAlt),
+		"addressingMode":  string(v.Info.AddressingMode),
+		"groupName":       groupName,
+		"avatarUrl":       avatarURL,
 		"participantJid": func() string {
 			if isGroup {
 				return senderJID
+			}
+			return ""
+		}(),
+		"participantPnJid": func() string {
+			if isGroup {
+				return senderIdentity.phoneText()
+			}
+			return ""
+		}(),
+		"participantLidJid": func() string {
+			if isGroup {
+				return senderIdentity.lidText()
 			}
 			return ""
 		}(),
@@ -566,15 +633,6 @@ func (s *bridgeState) handleIncomingMessage(v *events.Message) {
 	s.enqueueWebhook(payload)
 }
 
-func resolvePhoneJID(primary types.JID, alt types.JID) string {
-	primaryText := primary.String()
-	altText := alt.String()
-	if strings.HasSuffix(primaryText, "@lid") && altText != "" && !strings.HasSuffix(altText, "@lid") {
-		return altText
-	}
-	return primaryText
-}
-
 func (s *bridgeState) getGroupName(jid types.JID) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -583,6 +641,61 @@ func (s *bridgeState) getGroupName(jid types.JID) string {
 		return ""
 	}
 	return info.Name
+}
+
+func (s *bridgeState) resolveWhatsAppIdentity(primary types.JID, alt types.JID) resolvedJID {
+	identity := resolvedJID{
+		Raw: jidText(primary),
+		Alt: jidText(alt),
+	}
+
+	for _, candidate := range []types.JID{primary, alt} {
+		if candidate.IsEmpty() {
+			continue
+		}
+		bare := candidate.ToNonAD()
+		switch bare.Server {
+		case types.DefaultUserServer, types.LegacyUserServer:
+			if identity.Phone.IsEmpty() {
+				if bare.Server == types.LegacyUserServer {
+					bare.Server = types.DefaultUserServer
+				}
+				identity.Phone = bare
+			}
+		case types.HiddenUserServer:
+			if identity.LID.IsEmpty() {
+				identity.LID = bare
+			}
+		}
+	}
+
+	if identity.Phone.IsEmpty() && !identity.LID.IsEmpty() {
+		identity.Phone = s.lookupPhoneForLID(identity.LID)
+	}
+
+	if !identity.Phone.IsEmpty() {
+		identity.Canonical = identity.Phone
+	} else if !primary.IsEmpty() {
+		identity.Canonical = primary.ToNonAD()
+	} else if !alt.IsEmpty() {
+		identity.Canonical = alt.ToNonAD()
+	}
+
+	return identity
+}
+
+func (s *bridgeState) lookupPhoneForLID(lid types.JID) types.JID {
+	if s.client == nil || s.client.Store == nil || s.client.Store.LIDs == nil || lid.IsEmpty() || lid.Server != types.HiddenUserServer {
+		return types.JID{}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	phone, err := s.client.Store.LIDs.GetPNForLID(ctx, lid)
+	if err != nil || phone.IsEmpty() {
+		return types.JID{}
+	}
+	return phone.ToNonAD()
 }
 
 func (s *bridgeState) getProfilePictureURL(jid types.JID) string {
