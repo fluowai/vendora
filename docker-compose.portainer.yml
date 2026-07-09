@@ -151,18 +151,7 @@ services:
         - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
 
   whatsmeow-bridge:
-    image: golang:1.25-alpine
-    command:
-      - sh
-      - -lc
-      - |
-        set -e
-        apk add --no-cache git ca-certificates tzdata build-base
-        rm -rf /src
-        git clone --depth 1 --branch fix-whatsmeow-bridge https://github.com/fluowai/vendora.git /src
-        cd /src/whatsmeow-bridge
-        go build -o /data/bridge .
-        exec /data/bridge
+    image: ghcr.io/fluowai/vendora/whatsmeow-bridge:latest
     environment:
       - "PORT=4000"
       - "WHATSMEOW_DB_PATH=file:/data/whatsmeow-v2.db?_pragma=foreign_keys(1)"

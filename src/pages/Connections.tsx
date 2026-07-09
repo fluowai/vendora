@@ -315,7 +315,8 @@ export default function Connections() {
     const pushName = status.pushName || status.businessName || connection.pushName || connection.businessName || connection.config?.pushName || connection.config?.businessName || "";
     const avatarUrl = status.avatarUrl || connection.avatarUrl || connection.config?.avatarUrl || "";
     const jid = status.jid || connection.jid || connection.config?.jid || "";
-    const connected = !!status.connected || connection.status === "connected";
+    const hasLiveStatus = Object.prototype.hasOwnProperty.call(status, "connected");
+    const connected = hasLiveStatus ? !!status.connected : connection.status === "connected";
     return {
       phone,
       pushName: pushName || connection.name,
