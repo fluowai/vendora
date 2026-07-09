@@ -4,6 +4,7 @@ import { api } from "@/src/lib/api"
 
 export default function SuperAdminWhitelabel() {
   const [whiteLabels, setWhiteLabels] = useState<any[]>([])
+  const [plans, setPlans] = useState<any[]>([])
   const [search, setSearch] = useState("")
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({
@@ -11,6 +12,7 @@ export default function SuperAdminWhitelabel() {
     slug: "",
     email: "",
     customDomain: "",
+    planId: "enterprise",
     ownerName: "",
     ownerEmail: "",
     ownerPassword: "",
@@ -19,6 +21,13 @@ export default function SuperAdminWhitelabel() {
   const load = () => api.getMegaWhiteLabels({ search }).then((res) => setWhiteLabels(res.whiteLabels))
 
   useEffect(() => { load() }, [search])
+  useEffect(() => {
+    const token = localStorage.getItem("vendaora_token")
+    fetch("/api/superadmin/plans", { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => res.json())
+      .then((data) => setPlans(data.plans || []))
+      .catch(console.error)
+  }, [])
 
   const createWhiteLabel = async () => {
     if (!form.name || !form.slug) return
@@ -29,7 +38,7 @@ export default function SuperAdminWhitelabel() {
         slug: form.slug,
         email: form.email,
         customDomain: form.customDomain,
-        planId: "enterprise",
+        planId: form.planId,
         branding: {
           companyName: form.name,
           primaryColor: "#0f766e",
@@ -48,7 +57,7 @@ export default function SuperAdminWhitelabel() {
           password: form.ownerPassword,
         } : undefined,
       })
-      setForm({ name: "", slug: "", email: "", customDomain: "", ownerName: "", ownerEmail: "", ownerPassword: "" })
+      setForm({ name: "", slug: "", email: "", customDomain: "", planId: "enterprise", ownerName: "", ownerEmail: "", ownerPassword: "" })
       await load()
     } finally {
       setCreating(false)
@@ -58,8 +67,8 @@ export default function SuperAdminWhitelabel() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-display font-bold text-text">White Labels</h1>
-        <p className="text-sm text-muted mt-1">Parceiros que vendem a plataforma com marca propria</p>
+        <h1 className="text-2xl font-display font-bold text-text">Revendas</h1>
+        <p className="text-sm text-muted mt-1">Parceiros e sub-revendas que vendem a plataforma com marca propria</p>
       </div>
 
       <div className="bg-surface border border-border rounded-lg p-5">
@@ -67,6 +76,11 @@ export default function SuperAdminWhitelabel() {
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nome do white label" className="bg-bg border border-border rounded-lg px-4 py-3 text-sm outline-none" />
           <input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })} placeholder="slug-do-parceiro" className="bg-bg border border-border rounded-lg px-4 py-3 text-sm outline-none" />
           <input value={form.customDomain} onChange={(e) => setForm({ ...form, customDomain: e.target.value })} placeholder="app.parceiro.com" className="bg-bg border border-border rounded-lg px-4 py-3 text-sm outline-none" />
+          <select value={form.planId} onChange={(e) => setForm({ ...form, planId: e.target.value })} className="bg-bg border border-border rounded-lg px-4 py-3 text-sm outline-none">
+            {(plans.length ? plans : [{ id: "enterprise", name: "Enterprise" }]).map((plan) => (
+              <option key={plan.id} value={plan.id}>{plan.name}</option>
+            ))}
+          </select>
           <input value={form.ownerName} onChange={(e) => setForm({ ...form, ownerName: e.target.value })} placeholder="Nome do Super Admin" className="bg-bg border border-border rounded-lg px-4 py-3 text-sm outline-none" />
           <input value={form.ownerEmail} onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })} placeholder="email do Super Admin" className="bg-bg border border-border rounded-lg px-4 py-3 text-sm outline-none" />
           <div className="flex gap-3">

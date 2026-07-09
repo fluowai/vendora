@@ -39,7 +39,7 @@ export default function SuperAdminDashboard() {
   }, [])
 
   const cards = [
-    { icon: Building2, label: "Tenants", value: stats.totalTenants, color: "text-blue-600", bg: "bg-blue-50", border: "border-blue-100" },
+    { icon: Building2, label: "Clientes", value: stats.totalTenants, color: "text-blue-600", bg: "bg-blue-50", border: "border-blue-100" },
     { icon: Users, label: "Usuários", value: stats.totalUsers, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-100" },
     { icon: Bot, label: "Agentes IA", value: stats.totalAgents, color: "text-purple-600", bg: "bg-purple-50", border: "border-purple-100" },
     { icon: MessageSquare, label: "Conversas", value: stats.totalConversations, color: "text-amber-600", bg: "bg-amber-50", border: "border-amber-100" },

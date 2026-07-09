@@ -71,14 +71,17 @@ export default function SuperAdminPlans() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Excluir plano? Tenants com este plano podem ser afetados.")) return
+    if (!confirm("Excluir plano? Clientes ou revendas com este plano precisam ser alterados antes.")) return
     try {
       const token = localStorage.getItem("vendaora_token")
       const res = await fetch(`/api/superadmin/plans/${id}`, {
         method: "DELETE", headers: { Authorization: `Bearer ${token}` },
       })
+      const data = await res.json().catch(() => ({}))
       if (res.ok) {
         setPlans(plans.filter((p) => p.id !== id))
+      } else {
+        alert(data.error || "Nao foi possivel excluir o plano.")
       }
     } catch (err) { console.error(err) }
   }

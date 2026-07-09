@@ -8,10 +8,10 @@ import { cn } from "@/src/lib/utils"
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "" },
-  { icon: Building2, label: "Tenants", href: "tenants" },
+  { icon: Building2, label: "Clientes", href: "tenants" },
   { icon: CreditCard, label: "Planos", href: "plans" },
   { icon: Users, label: "Usuários", href: "users" },
-  { icon: Palette, label: "Whitelabel", href: "whitelabel" },
+  { icon: Palette, label: "Revendas", href: "whitelabel" },
 ]
 
 export default function SuperAdminLayout() {
