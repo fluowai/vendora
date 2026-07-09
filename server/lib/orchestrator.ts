@@ -30,7 +30,7 @@ export async function orchestrateWithAgents(
   runtimeContext?: AgentRuntimeContext,
 ): Promise<OrchestrationResult> {
   const steps: OrchestrationResult["steps"] = [];
-  const primaryAgent = await getAgent(primaryAgentId);
+  const primaryAgent = await getAgent(primaryAgentId, runtimeContext?.tenantId);
   if (!primaryAgent) throw new Error(`Agent ${primaryAgentId} not found`);
 
   const primaryResult = await executeAgent(primaryAgent, message, history, runtimeContext);
@@ -52,7 +52,7 @@ export async function orchestrateWithAgents(
 
   if (needsSupport && supportingAgentIds.length > 0) {
     for (const agentId of supportingAgentIds) {
-      const agent = await getAgent(agentId);
+      const agent = await getAgent(agentId, runtimeContext?.tenantId);
       if (!agent || agent.status !== "active") continue;
 
       const supportResult = await executeAgent(
@@ -85,7 +85,7 @@ export async function executeWorkflow(workflowId: string, input: string, context
   let currentInput = input;
 
   for (const step of workflow.steps) {
-    const agent = await getAgent(step.agentId);
+    const agent = await getAgent(step.agentId, context?.tenantId);
     if (!agent || agent.status !== "active") continue;
 
     if (step.condition) {

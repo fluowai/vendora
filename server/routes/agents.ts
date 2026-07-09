@@ -56,7 +56,7 @@ router.put("/:id",
   requirePermission("agents", "manage"),
   validate(schemas.updateAgent),
   async (req: Request, res: Response) => {
-    const agent = await updateAgent(req.params.id, req.body);
+    const agent = await updateAgent(req.params.id, req.body, req.user!.tenantId);
     if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
     res.json({ agent });
   }
@@ -66,7 +66,7 @@ router.delete("/:id",
   authMiddleware,
   requirePermission("agents", "manage"),
   async (req: Request, res: Response) => {
-    const deleted = await deleteAgent(req.params.id);
+    const deleted = await deleteAgent(req.params.id, req.user!.tenantId);
     if (!deleted) { res.status(404).json({ error: "Agent not found" }); return; }
     res.json({ success: true });
   }
@@ -74,11 +74,13 @@ router.delete("/:id",
 
 // Chat with agent
 router.post("/:id/chat",
+  authMiddleware,
+  requirePermission("agents", "manage"),
   agentChatLimiter,
   validate(schemas.agentChat),
   async (req: Request, res: Response) => {
     const { message, conversationId } = req.body;
-    const agent = await getAgent(req.params.id);
+    const agent = await getAgent(req.params.id, req.user!.tenantId);
     if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
 
     try {
@@ -96,12 +98,20 @@ router.post("/:id/chat",
 
 // Multi-agent orchestrated chat
 router.post("/orchestrate",
+  authMiddleware,
+  requirePermission("agents", "manage"),
   agentChatLimiter,
   validate(schemas.orchestrate),
   async (req: Request, res: Response) => {
     const { primaryAgentId, message, supportingAgentIds } = req.body;
     try {
-      const result = await orchestrateWithAgents(primaryAgentId, message, supportingAgentIds || []);
+      const allowedAgents = await getAllAgents(req.user!.tenantId);
+      const allowedAgentIds = new Set(allowedAgents.map((agent: any) => agent.id));
+      if (!allowedAgentIds.has(primaryAgentId) || (supportingAgentIds || []).some((id: string) => !allowedAgentIds.has(id))) {
+        res.status(404).json({ error: "Agent not found" });
+        return;
+      }
+      const result = await orchestrateWithAgents(primaryAgentId, message, supportingAgentIds || [], undefined, { tenantId: req.user!.tenantId });
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -188,9 +198,11 @@ router.post("/knowledge/:id/search", async (req: Request, res: Response) => {
   res.json({ results });
 });
 
-router.get("/:id", async (req: Request, res: Response) => {
-  const agent = await getAgent(req.params.id);
-  if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+router.get("/:id", optionalAuth, async (req: Request, res: Response) => {
+  const agent = req.user
+    ? await getAgent(req.params.id, req.user.tenantId)
+    : await getAgent(req.params.id);
+  if (!agent || (!req.user && !agent.isPublished)) { res.status(404).json({ error: "Agent not found" }); return; }
   res.json({ agent });
 });
 

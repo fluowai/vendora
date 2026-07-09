@@ -240,7 +240,7 @@ export async function processIncomingMessage(input: {
     return { handoff: true, reason: route.reason };
   }
 
-  const agent = await getAgent(route.agentId);
+  const agent = await getAgent(route.agentId, input.tenantId);
   if (!agent) return { skipped: true, reason: "Agente roteado nao encontrado" };
 
   const scheduling = await applySchedulingTool({

@@ -381,7 +381,7 @@ export async function executeFlow(input: ExecuteFlowInput) {
     }
 
     if (node.type === "agent") {
-      const agent = await getAgent(node.data?.agentId);
+      const agent = await getAgent(node.data?.agentId, input.tenantId);
       if (!agent) throw new Error(`Agente ${node.data?.agentId} nao encontrado`);
       const prompt = interpolate(node.data?.prompt || input.input || "", variables);
       const result = await executeAgent(agent, prompt || input.input || "", [], {

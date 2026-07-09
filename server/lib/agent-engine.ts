@@ -68,8 +68,10 @@ export async function getAllAgents(tenantId?: string) {
   return agents.map(toAgentResponse);
 }
 
-export async function getAgent(id: string) {
-  const agent = await prisma.aiAgent.findUnique({ where: { id } });
+export async function getAgent(id: string, tenantId?: string) {
+  const agent = tenantId
+    ? await prisma.aiAgent.findFirst({ where: { id, tenantId } })
+    : await prisma.aiAgent.findUnique({ where: { id } });
   return toAgentResponse(agent);
 }
 
@@ -79,15 +81,23 @@ export async function createAgent(data: any) {
   return toAgentResponse(agent);
 }
 
-export async function updateAgent(id: string, data: any) {
+export async function updateAgent(id: string, data: any, tenantId?: string) {
   const input = fromAgentInput(data);
-  const agent = await prisma.aiAgent.update({ where: { id }, data: input });
+  const existing = tenantId
+    ? await prisma.aiAgent.findFirst({ where: { id, tenantId }, select: { id: true } })
+    : await prisma.aiAgent.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) return null;
+  const agent = await prisma.aiAgent.update({ where: { id: existing.id }, data: input });
   return toAgentResponse(agent);
 }
 
-export async function deleteAgent(id: string) {
+export async function deleteAgent(id: string, tenantId?: string) {
   try {
-    await prisma.aiAgent.delete({ where: { id } });
+    const existing = tenantId
+      ? await prisma.aiAgent.findFirst({ where: { id, tenantId }, select: { id: true } })
+      : await prisma.aiAgent.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) return false;
+    await prisma.aiAgent.delete({ where: { id: existing.id } });
     return true;
   } catch {
     return false;

@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import {
+  Activity,
+  AlertTriangle,
   ArrowLeft,
   BarChart,
   Bot,
   Brain,
+  CheckCircle2,
   Code,
   FileText,
   Globe,
@@ -22,6 +25,30 @@ import { cn } from "@/src/lib/utils"
 import { api } from "@/src/lib/api"
 import { AgentForm } from "@/src/components/builder/AgentForm"
 
+type TabId = "overview" | "chat" | "analytics" | "knowledge" | "integrations"
+
+function ruleArray(agent: any, key: string): string[] {
+  const value = agent?.handoffRules?.[key]
+  return Array.isArray(value) ? value : []
+}
+
+function connectionIdentity(connection: any) {
+  const config = connection.config || {}
+  const phone = connection.phone || config.phone || ""
+  const jid = connection.jid || config.jid || ""
+  const label = connection.pushName || connection.businessName || config.pushName || config.businessName || connection.name
+  return {
+    label,
+    phone: phone || (jid ? jid.split("@")[0] : ""),
+    connected: connection.status === "connected" || !!connection.connectedAt || !!config.connectedAt,
+    provider: connection.channel?.provider || "whatsapp",
+  }
+}
+
+function agentUsesConnection(agent: any, connectionId: string) {
+  return ruleArray(agent, "whatsappInstanceIds").includes(connectionId)
+}
+
 export default function AgentDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -30,7 +57,7 @@ export default function AgentDetail() {
   const [connections, setConnections] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showConfig, setShowConfig] = useState(false)
-  const [activeTab, setActiveTab] = useState<"overview" | "chat" | "analytics" | "knowledge" | "integrations">("overview")
+  const [activeTab, setActiveTab] = useState<TabId>("overview")
   const [chatMessage, setChatMessage] = useState("")
   const [chatResponse, setChatResponse] = useState("")
   const [chatLoading, setChatLoading] = useState(false)
@@ -40,6 +67,7 @@ export default function AgentDetail() {
 
   useEffect(() => {
     if (!id) return
+    setLoading(true)
     Promise.all([
       api.getAgent(id),
       api.getAgents().catch(() => ({ agents: [] })),
@@ -57,29 +85,26 @@ export default function AgentDetail() {
       .finally(() => setLoading(false))
   }, [id])
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
+  const supportAgentNames = useMemo(() => (
+    ruleArray(agent, "supportAgentIds")
+      .map((agentId) => agents.find((item) => item.id === agentId)?.name)
+      .filter(Boolean)
+  ), [agent, agents])
 
-  if (!agent) {
-    return (
-      <div className="text-center py-20">
-        <Bot className="w-16 h-16 text-muted/30 mx-auto mb-4" />
-        <h2 className="text-xl font-bold mb-2">Agente nao encontrado</h2>
-        <button onClick={() => navigate("/app/agents")} className="text-primary font-bold text-sm">Voltar</button>
-      </div>
-    )
-  }
+  const linkedWhatsappConnections = useMemo(() => (
+    ruleArray(agent, "whatsappInstanceIds")
+      .map((instanceId) => connections.find((item) => item.id === instanceId))
+      .filter(Boolean)
+  ), [agent, connections])
 
-  const supportAgentNames = (agent.handoffRules?.supportAgentIds || [])
-    .map((agentId: string) => agents.find((item) => item.id === agentId)?.name)
-    .filter(Boolean)
-  const whatsappNames = (agent.handoffRules?.whatsappInstanceIds || [])
-    .map((instanceId: string) => connections.find((item) => item.id === instanceId)?.name || instanceId)
+  const whatsappEnabled = agent?.channels?.includes("whatsapp")
+  const whatsappNotLinked = whatsappEnabled && linkedWhatsappConnections.length === 0
+
+  const connectionOwnerNames = (connectionId: string) => (
+    agents
+      .filter((item) => agentUsesConnection(item, connectionId))
+      .map((item) => item.id === agent?.id ? `${item.name} (este agente)` : item.name)
+  )
 
   const handleChat = async () => {
     if (!chatMessage.trim()) return
@@ -97,6 +122,9 @@ export default function AgentDetail() {
     try {
       const res = await api.updateAgent(agent.id, data)
       setAgent(res.agent)
+      setAgents((items) => items.some((item) => item.id === res.agent.id)
+        ? items.map((item) => item.id === res.agent.id ? res.agent : item)
+        : [res.agent, ...items])
       setShowConfig(false)
     } catch (e: any) {
       alert(`Erro ao salvar: ${e.message}`)
@@ -107,6 +135,7 @@ export default function AgentDetail() {
     const nextStatus = agent.status === "active" ? "paused" : "active"
     const res = await api.updateAgent(agent.id, { status: nextStatus })
     setAgent(res.agent)
+    setAgents((items) => items.map((item) => item.id === res.agent.id ? res.agent : item))
   }
 
   const uploadKnowledgeDocument = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,32 +171,56 @@ export default function AgentDetail() {
     { id: "integrations", label: "Integracoes", icon: Link },
   ] as const
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!agent) {
+    return (
+      <div className="text-center py-20">
+        <Bot className="w-16 h-16 text-muted/30 mx-auto mb-4" />
+        <h2 className="text-xl font-bold mb-2">Agente nao encontrado</h2>
+        <button onClick={() => navigate("/app/agents")} className="text-primary font-bold text-sm">Voltar</button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 pb-10">
-      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate("/app/agents")} className="p-2 rounded-xl hover:bg-bg transition-all text-muted">
+      <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <button onClick={() => navigate("/app/agents")} className="p-2 rounded-xl hover:bg-bg transition-all text-muted mt-1">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20">
+          <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20 shrink-0">
             <Bot className="w-6 h-6 text-primary" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-display font-bold">{agent.name}</h1>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-display font-bold truncate">{agent.name}</h1>
               <span className={cn(
-                "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider",
-                agent.status === "active" ? "bg-primary/10 text-primary border border-primary/20" :
-                  agent.status === "paused" ? "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20" :
-                    "bg-muted/10 text-muted border border-muted/20"
+                "px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border",
+                agent.status === "active" ? "bg-primary/10 text-primary border-primary/20" :
+                  agent.status === "paused" ? "bg-yellow-500/10 text-yellow-600 border-yellow-500/20" :
+                    "bg-muted/10 text-muted border-muted/20"
               )}>
                 {agent.status}
               </span>
+              {whatsappNotLinked && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[9px] font-bold uppercase tracking-wider">
+                  <AlertTriangle className="w-3 h-3" /> WhatsApp sem vinculo
+                </span>
+              )}
             </div>
-            <p className="text-xs text-muted">{agent.segment} | {agent.llmConfig?.provider} | {agent.llmConfig?.model}</p>
+            <p className="text-xs text-muted mt-1">{agent.segment} | {agent.llmConfig?.provider} | {agent.llmConfig?.model}</p>
+            <p className="text-sm text-muted mt-3 max-w-3xl leading-relaxed">{agent.description || "Sem descricao configurada."}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button onClick={() => setShowConfig(true)} className="px-4 py-2.5 bg-surface border border-border rounded-xl text-xs font-bold hover:bg-bg transition-all flex items-center gap-2">
             <Settings2 className="w-4 h-4" /> Configurar
           </button>
@@ -180,22 +233,33 @@ export default function AgentDetail() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "Conversas", value: agent.installs?.toLocaleString() || "0", icon: MessageSquare },
-          { label: "Autonomia", value: agent.handoffRules?.autonomyMode || "supervised", icon: ShieldCheck },
-          { label: "WhatsApp", value: whatsappNames.length, icon: Smartphone },
-          { label: "Apoios", value: supportAgentNames.length, icon: Users },
+          { label: "Conversas", value: agent.installs?.toLocaleString() || "0", icon: MessageSquare, hint: "historico" },
+          { label: "Autonomia", value: agent.handoffRules?.autonomyMode || "supervised", icon: ShieldCheck, hint: "modo" },
+          { label: "WhatsApp", value: linkedWhatsappConnections.length, icon: Smartphone, hint: "vinculos" },
+          { label: "Apoios", value: supportAgentNames.length, icon: Users, hint: "multiagente" },
         ].map((stat) => (
-          <div key={stat.label} className="bg-surface rounded-2xl p-5 border border-border">
+          <div key={stat.label} className="bg-surface rounded-xl p-5 border border-border">
             <div className="flex items-center gap-2 mb-2">
               <stat.icon className="w-4 h-4 text-primary" />
               <span className="text-[10px] font-bold text-muted uppercase tracking-wider">{stat.label}</span>
             </div>
             <p className="text-2xl font-display font-bold truncate">{stat.value}</p>
+            <p className="text-[10px] text-muted mt-1">{stat.hint}</p>
           </div>
         ))}
       </div>
 
-      <div className="flex gap-1 bg-surface rounded-2xl p-1 border border-border w-fit max-w-full overflow-x-auto">
+      {whatsappNotLinked && (
+        <div className="rounded-xl border border-amber-100 bg-amber-50 p-4 flex items-start gap-3 text-amber-900">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <div>
+            <p className="text-sm font-bold">Este agente tem WhatsApp nos canais, mas nenhum numero vinculado.</p>
+            <p className="text-xs mt-1 leading-relaxed">Com a correcao de seguranca, essa instancia nao deve responder automaticamente ate voce ligar um numero em Configurar &gt; Vinculos.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-1 bg-surface rounded-xl p-1 border border-border w-fit max-w-full overflow-x-auto">
         {tabs.map((tab) => {
           const Icon = tab.icon
           return (
@@ -203,7 +267,7 @@ export default function AgentDetail() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap",
+                "px-4 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap",
                 activeTab === tab.id ? "bg-primary text-white" : "text-muted hover:text-text"
               )}
             >
@@ -214,69 +278,79 @@ export default function AgentDetail() {
         })}
       </div>
 
-      <div className="bg-surface rounded-2xl border border-border p-8">
+      <div className="bg-surface rounded-xl border border-border p-5 lg:p-7">
         {activeTab === "overview" && (
-          <div className="space-y-6">
-            <div>
-              <h3 className="font-bold text-lg mb-2">Descricao</h3>
-              <p className="text-sm text-muted leading-relaxed">{agent.description}</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6">
+            <div className="space-y-6">
               <div>
-                <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-3">Modelo</h4>
+                <h3 className="font-bold text-lg mb-3">System Prompt</h3>
+                <pre className="min-h-[280px] max-h-[520px] overflow-auto bg-slate-950 text-slate-100 border border-slate-800 rounded-xl p-4 text-xs font-mono whitespace-pre-wrap leading-relaxed">
+                  {agent.llmConfig?.systemPrompt || "Nenhum prompt configurado."}
+                </pre>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 bg-bg border border-border rounded-xl">
+                  <Activity className="w-4 h-4 text-primary mb-2" />
+                  <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Modelo</h4>
+                  <p className="text-sm font-bold">{agent.llmConfig?.provider}</p>
+                  <p className="text-xs text-muted mt-1">{agent.llmConfig?.model}</p>
+                </div>
+                <div className="p-4 bg-bg border border-border rounded-xl">
+                  <ShieldCheck className="w-4 h-4 text-primary mb-2" />
+                  <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Objetivo</h4>
+                  <p className="text-xs text-muted leading-relaxed">{agent.handoffRules?.businessGoal || "Objetivo operacional nao configurado."}</p>
+                </div>
+                <div className="p-4 bg-bg border border-border rounded-xl">
+                  <Globe className="w-4 h-4 text-primary mb-2" />
+                  <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Canais</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {agent.channels?.map((ch: string) => (
+                      <span key={ch} className="px-2.5 py-1 bg-surface border border-border rounded-lg text-[10px] font-bold">{ch}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <aside className="space-y-4">
+              <div className="rounded-xl border border-border bg-bg p-5">
+                <h3 className="font-bold mb-1">Mapa de vinculos</h3>
+                <p className="text-xs text-muted mb-4">Veja exatamente qual agente responde em cada numero.</p>
                 <div className="space-y-3">
-                  {[
-                    ["Provider", agent.llmConfig?.provider],
-                    ["Modelo", agent.llmConfig?.model],
-                    ["Temperature", agent.llmConfig?.temperature ?? 0.7],
-                  ].map(([label, value]) => (
-                    <div key={String(label)} className="flex justify-between py-2 border-b border-border">
-                      <span className="text-xs text-muted">{label}</span>
-                      <span className="text-xs font-bold">{value}</span>
-                    </div>
-                  ))}
+                  {connections.length === 0 ? (
+                    <p className="text-xs text-muted">Nenhuma instancia WhatsApp cadastrada.</p>
+                  ) : connections.map((connection) => {
+                    const view = connectionIdentity(connection)
+                    const owners = connectionOwnerNames(connection.id)
+                    const current = agentUsesConnection(agent, connection.id)
+                    return (
+                      <div key={connection.id} className={cn(
+                        "rounded-xl border p-3",
+                        current ? "border-primary/30 bg-primary/10" : "border-border bg-surface"
+                      )}>
+                        <div className="flex items-start gap-3">
+                          <span className={cn("mt-1 h-2.5 w-2.5 rounded-full shrink-0", view.connected ? "bg-primary" : "bg-amber-400")} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold truncate">{view.label}</p>
+                            <p className="text-[11px] text-muted truncate">{view.phone || view.provider}</p>
+                            <p className="text-[11px] mt-2 font-semibold text-muted">
+                              {owners.length ? owners.join(", ") : "Sem agente vinculado"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
-              <div>
-                <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-3">Canais ativos</h4>
-                <div className="flex flex-wrap gap-2">
-                  {agent.channels?.map((ch: string) => (
-                    <span key={ch} className="px-3 py-1.5 bg-bg border border-border rounded-lg text-[10px] font-bold">{ch}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-bg border border-border rounded-2xl">
-                <ShieldCheck className="w-4 h-4 text-primary mb-2" />
-                <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Autonomia</h4>
-                <p className="text-sm font-bold">{agent.handoffRules?.autonomyMode || "supervised"}</p>
-                <p className="text-xs text-muted mt-2">{agent.handoffRules?.businessGoal || "Objetivo operacional nao configurado."}</p>
-              </div>
-              <div className="p-4 bg-bg border border-border rounded-2xl">
-                <Smartphone className="w-4 h-4 text-primary mb-2" />
-                <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">WhatsApp</h4>
-                <p className="text-sm font-bold">{whatsappNames.length} vinculo(s)</p>
-                <p className="text-xs text-muted mt-2">{whatsappNames.length ? whatsappNames.join(", ") : "Nenhum numero vinculado."}</p>
-              </div>
-              <div className="p-4 bg-bg border border-border rounded-2xl">
-                <Users className="w-4 h-4 text-primary mb-2" />
-                <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Multiagente</h4>
-                <p className="text-sm font-bold">{supportAgentNames.length} apoio(s)</p>
-                <p className="text-xs text-muted mt-2">{supportAgentNames.length ? supportAgentNames.join(", ") : "Sem especialistas de apoio."}</p>
-              </div>
-            </div>
-            <div>
-              <h4 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-3">System Prompt</h4>
-              <pre className="bg-bg border border-border rounded-2xl p-4 text-xs font-mono text-muted whitespace-pre-wrap">{agent.llmConfig?.systemPrompt}</pre>
-            </div>
+            </aside>
           </div>
         )}
 
         {activeTab === "chat" && (
           <div className="space-y-4">
             <h3 className="font-bold mb-4">Testar agente</h3>
-            <div className="bg-bg rounded-2xl border border-border p-6 min-h-[200px] mb-4">
+            <div className="bg-bg rounded-xl border border-border p-6 min-h-[220px] mb-4">
               {chatResponse ? (
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -284,14 +358,14 @@ export default function AgentDetail() {
                   </div>
                   <div>
                     <p className="text-xs font-bold mb-1">{agent.name}</p>
-                    <p className="text-sm text-muted whitespace-pre-wrap">{chatResponse}</p>
+                    <p className="text-sm text-muted whitespace-pre-wrap leading-relaxed">{chatResponse}</p>
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-muted/50 text-center py-8">Envie uma mensagem para testar o agente</p>
+                <p className="text-sm text-muted/60 text-center py-10">Envie uma mensagem para testar o agente</p>
               )}
             </div>
-            <div className="flex gap-3">
+            <div className="flex flex-col md:flex-row gap-3">
               <input
                 type="text"
                 value={chatMessage}
@@ -323,7 +397,7 @@ export default function AgentDetail() {
           <div className="text-center py-12">
             <FileText className="w-16 h-16 text-muted/30 mx-auto mb-4" />
             <h3 className="font-bold text-lg mb-2">Base de Conhecimento</h3>
-            <p className="text-sm text-muted mb-6">Faca upload de PDFs, textos ou URLs para dar contexto especifico ao agente.</p>
+            <p className="text-sm text-muted mb-6">Envie textos, markdown ou CSV para dar contexto especifico ao agente.</p>
             <input
               ref={knowledgeInputRef}
               type="file"
@@ -336,66 +410,68 @@ export default function AgentDetail() {
               disabled={uploadingKnowledge}
               className="px-6 py-3 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/90 transition-all flex items-center gap-2 mx-auto disabled:opacity-50"
             >
-              <Upload className="w-4 h-4" /> {uploadingKnowledge ? "Enviando..." : "Upload de Documentos"}
+              <Upload className="w-4 h-4" /> {uploadingKnowledge ? "Enviando..." : "Upload de documentos"}
             </button>
             {knowledgeMessage && <p className="mt-4 text-xs font-bold text-muted">{knowledgeMessage}</p>}
-            <p className="mt-3 text-[11px] text-muted">Arquivos PDF precisam ser convertidos para texto antes do envio nesta versao.</p>
           </div>
         )}
 
         {activeTab === "integrations" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
+          <div className="space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <h3 className="font-bold text-lg">Integracoes</h3>
-                <p className="text-xs text-muted mt-1">Vincule numeros de WhatsApp e canais onde este agente atende automaticamente.</p>
+                <p className="text-xs text-muted mt-1">Controle quais numeros e canais podem acionar este agente automaticamente.</p>
               </div>
-              <button onClick={() => setShowConfig(true)} className="px-4 py-2 bg-primary text-white rounded-xl text-[10px] font-bold hover:bg-primary/90 transition-all">
+              <button onClick={() => setShowConfig(true)} className="px-4 py-2 bg-primary text-white rounded-xl text-[10px] font-bold hover:bg-primary/90 transition-all w-fit">
                 Configurar vinculos
               </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-5 bg-bg border border-border rounded-2xl">
-                <div className="flex items-center gap-3 mb-4">
-                  <Smartphone className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="text-sm font-bold">WhatsApp autonomo</p>
-                    <p className="text-[10px] text-muted">Numeros que usam este agente para responder clientes.</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {whatsappNames.length ? whatsappNames.map((name: string) => (
-                    <div key={name} className="px-3 py-2 bg-surface border border-border rounded-xl text-xs font-bold">
-                      {name}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {connections.map((connection) => {
+                const view = connectionIdentity(connection)
+                const owners = connectionOwnerNames(connection.id)
+                const current = agentUsesConnection(agent, connection.id)
+                return (
+                  <div key={connection.id} className={cn(
+                    "p-5 border rounded-xl",
+                    current ? "bg-primary/10 border-primary/30" : "bg-bg border-border"
+                  )}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <Smartphone className={cn("w-5 h-5 mt-1 shrink-0", current ? "text-primary" : "text-muted")} />
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold truncate">{view.label}</p>
+                          <p className="text-xs text-muted truncate">{view.phone || connection.name}</p>
+                          <p className="text-[11px] text-muted mt-2">
+                            {owners.length ? `Agente ligado: ${owners.join(", ")}` : "Nenhum agente ligado"}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={cn(
+                        "inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[9px] font-bold uppercase",
+                        current ? "bg-primary text-white" : "bg-surface border border-border text-muted"
+                      )}>
+                        {current ? <CheckCircle2 className="w-3 h-3" /> : null}
+                        {current ? "este agente" : view.connected ? "conectado" : "pendente"}
+                      </span>
                     </div>
-                  )) : (
-                    <p className="text-xs text-muted">Nenhum numero vinculado.</p>
-                  )}
-                </div>
-              </div>
-              <div className="p-5 bg-bg border border-border rounded-2xl">
-                <div className="flex items-center gap-3 mb-4">
-                  <Users className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="text-sm font-bold">Equipe multiagente</p>
-                    <p className="text-[10px] text-muted">Especialistas chamados quando o atendimento precisa de apoio.</p>
                   </div>
+                )
+              })}
+
+              {connections.length === 0 && (
+                <div className="p-6 bg-bg border border-border rounded-xl text-sm text-muted">
+                  Nenhuma instancia WhatsApp cadastrada.
                 </div>
-                <div className="space-y-2">
-                  {supportAgentNames.length ? supportAgentNames.map((name: string) => (
-                    <div key={name} className="px-3 py-2 bg-surface border border-border rounded-xl text-xs font-bold">
-                      {name}
-                    </div>
-                  )) : (
-                    <p className="text-xs text-muted">Nenhum agente de apoio configurado.</p>
-                  )}
-                </div>
-              </div>
+              )}
+
               {[
                 { icon: Globe, name: "Web Widget", desc: "Chat no seu site", status: "disponivel" },
                 { icon: Code, name: "API Publica", desc: "Endpoint REST para integracao", status: "disponivel" },
               ].map((integration) => (
-                <div key={integration.name} className="p-5 bg-bg border border-border rounded-2xl flex items-center justify-between">
+                <div key={integration.name} className="p-5 bg-bg border border-border rounded-xl flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <integration.icon className="w-5 h-5 text-primary" />
                     <div>
