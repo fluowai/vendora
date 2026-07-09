@@ -1,13 +1,39 @@
-const API_BASE = '/api'
+const configuredApiBase = import.meta.env.VITE_API_URL || 'same-origin'
+const API_BASE = configuredApiBase === 'same-origin'
+  ? '/api'
+  : configuredApiBase.replace(/\/$/, '')
 
 function getAuthHeaders(): Record<string, string> {
   const token = localStorage.getItem('vendaora_token')
   return token ? { 'Authorization': `Bearer ${token}` } : {}
 }
 
+function formatNonJsonError(res: Response, body: string): string {
+  const preview = body.trim().slice(0, 120).replace(/\s+/g, ' ')
+  const target = res.url || 'endpoint da API'
+
+  if (preview.toLowerCase().startsWith('<!doctype') || preview.startsWith('<html')) {
+    return `A API respondeu HTML em vez de JSON (${res.status} ${res.statusText}) para ${target}. Verifique o proxy/roteamento de /api para o backend.`
+  }
+
+  return `Resposta invalida da API (${res.status} ${res.statusText}) para ${target}: ${preview || 'corpo vazio'}`
+}
+
+async function readJson<T>(res: Response): Promise<T> {
+  const body = await res.text()
+  if (!body.trim()) return undefined as T
+
+  try {
+    return JSON.parse(body) as T
+  } catch {
+    throw new Error(formatNonJsonError(res, body))
+  }
+}
+
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${endpoint}`, {
     headers: {
+      'Accept': 'application/json',
       'Content-Type': 'application/json',
       ...getAuthHeaders(),
       ...options?.headers,
@@ -21,10 +47,10 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     throw new Error('Sessão expirada')
   }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
+    const err = await readJson<{ error?: string }>(res).catch(() => ({ error: res.statusText }))
     throw new Error(err.error || `Request failed: ${res.status}`)
   }
-  return res.json()
+  return readJson<T>(res)
 }
 
 export const api = {
