@@ -31,6 +31,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/src/lib/api";
 import { cn } from "@/src/lib/utils";
 import { CallActionButton } from "../components/calls/CallActionButton";
+import { useSocket } from "../hooks/useSocket";
 import { formatPhoneForDisplay } from "../lib/phone";
 
 export default function Inbox() {
@@ -53,6 +54,7 @@ export default function Inbox() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
+  const { lastMessage, joinConversation, leaveConversation } = useSocket();
 
   useEffect(() => {
     const query = searchParams.get("search") || "";
@@ -63,6 +65,91 @@ export default function Inbox() {
   useEffect(() => {
     if (activeChat && window.innerWidth < 1024) setView("chat");
   }, [activeChat]);
+
+  useEffect(() => {
+    if (!activeChat?.id) return;
+    joinConversation(activeChat.id);
+    return () => leaveConversation(activeChat.id);
+  }, [activeChat?.id, joinConversation, leaveConversation]);
+
+  const sortConversations = (items: any[]) =>
+    [...items].sort((a, b) =>
+      new Date(b.lastMessageAt || b.time || b.createdAt || 0).getTime()
+      - new Date(a.lastMessageAt || a.time || a.createdAt || 0).getTime()
+    );
+
+  const conversationMatchesFilters = (conversation: any) => {
+    const type = conversation.chatType || (conversation.isGroup ? "group" : "private");
+    if (chatType !== "all" && type !== chatType) return false;
+
+    const query = search.trim().toLowerCase();
+    if (!query) return true;
+
+    return [conversation.name, conversation.phone, conversation.email, conversation.lastMessage]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  };
+
+  useEffect(() => {
+    if (!lastMessage) return;
+
+    if (lastMessage.type === "conversation:new" && lastMessage.data) {
+      const incoming = lastMessage.data;
+      if (!conversationMatchesFilters(incoming)) return;
+      setConversations((items) =>
+        sortConversations([
+          incoming,
+          ...items.filter((item) => item.id !== incoming.id),
+        ])
+      );
+      return;
+    }
+
+    if (lastMessage.type === "conversation:updated" && lastMessage.data) {
+      const update = lastMessage.data.conversation || lastMessage.data;
+      const id = update.id || lastMessage.data.conversationId;
+      setConversations((items) => {
+        const exists = items.some((item) => item.id === id);
+        const updated = items.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                ...update,
+                lastMessage: update.lastMessage ?? lastMessage.data.lastMessage ?? item.lastMessage,
+                lastMessageAt: update.lastMessageAt ?? lastMessage.data.lastMessageAt ?? item.lastMessageAt,
+                time: update.time ?? lastMessage.data.time ?? lastMessage.data.lastMessageAt ?? item.time,
+              }
+            : item
+        );
+        if (!exists && update.id && conversationMatchesFilters(update)) {
+          updated.unshift(update);
+        }
+        return sortConversations(updated);
+      });
+      return;
+    }
+
+    if (lastMessage.type === "message:new" && lastMessage.message) {
+      const { conversationId, message } = lastMessage;
+      setActiveChat((chat: any) => {
+        if (!chat || chat.id !== conversationId) return chat;
+        const messages = chat.messages || [];
+        if (messages.some((item: any) => item.id === message.id)) return chat;
+        return {
+          ...chat,
+          lastMessage: message.content,
+          lastMessageAt: message.sentAt,
+          messages: [...messages, message],
+        };
+      });
+      setConversations((items) =>
+        sortConversations(items.map((item) =>
+          item.id === conversationId
+            ? { ...item, lastMessage: message.content, lastMessageAt: message.sentAt, time: message.sentAt }
+            : item
+        ))
+      );
+    }
+  }, [lastMessage, chatType, search]);
 
   const loadConversations = async (query = search, type = chatType) => {
     try {

@@ -68,7 +68,7 @@ export default function Connections() {
         }])),
       }));
       void Promise.allSettled(whatsmeowConnections.map((item: any) => checkStatus(item.id, true)));
-      await loadWahaplusSessions();
+      if (engineTab === "wahaplus") await loadWahaplusSessions();
     } catch (e: any) {
       setError(e.message || "Erro ao carregar instancias");
     } finally {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
 
 const CONFIGURED_SOCKET_URL =
@@ -36,7 +36,11 @@ export function useSocket() {
     });
 
     socket.on("message:new", (data: any) => {
-      setLastMessage(data);
+      setLastMessage({ type: "message:new", ...data });
+    });
+
+    socket.on("conversation:new", (data: any) => {
+      setLastMessage({ type: "conversation:new", data });
     });
 
     socket.on("conversation:updated", (data: any) => {
@@ -59,21 +63,21 @@ export function useSocket() {
     };
   }, []);
 
-  const joinConversation = (conversationId: string) => {
+  const joinConversation = useCallback((conversationId: string) => {
     socketRef.current?.emit("join:conversation", conversationId);
-  };
+  }, []);
 
-  const leaveConversation = (conversationId: string) => {
+  const leaveConversation = useCallback((conversationId: string) => {
     socketRef.current?.emit("leave:conversation", conversationId);
-  };
+  }, []);
 
-  const startTyping = (conversationId: string) => {
+  const startTyping = useCallback((conversationId: string) => {
     socketRef.current?.emit("typing:start", { conversationId });
-  };
+  }, []);
 
-  const stopTyping = (conversationId: string) => {
+  const stopTyping = useCallback((conversationId: string) => {
     socketRef.current?.emit("typing:stop", { conversationId });
-  };
+  }, []);
 
   return {
     socket: socketRef.current,

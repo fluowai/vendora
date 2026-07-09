@@ -337,6 +337,10 @@ func (s *bridgeState) connectWithRetry() {
 }
 
 func (s *bridgeState) connect() error {
+	if s.client.IsConnected() {
+		return nil
+	}
+
 	if s.client.Store.ID == nil {
 		qrChan, err := s.client.GetQRChannel(context.Background())
 		if err != nil {
@@ -347,6 +351,7 @@ func (s *bridgeState) connect() error {
 			return fmt.Errorf("connect: %w", err)
 		}
 
+		pairingSucceeded := false
 		for evt := range qrChan {
 			switch evt.Event {
 			case whatsmeow.QRChannelEventCode:
@@ -360,6 +365,7 @@ func (s *bridgeState) connect() error {
 				s.pairReadyOnce.Do(func() { close(s.pairReadyCh) })
 				log.Println("[whatsmeow-bridge] QR code updated")
 			case "success":
+				pairingSucceeded = true
 				s.mu.Lock()
 				s.pairingEvent = evt.Event
 				s.pairingCode = ""
@@ -395,9 +401,18 @@ func (s *bridgeState) connect() error {
 				log.Printf("[whatsmeow-bridge] login event: %s", evt.Event)
 			}
 		}
+		if pairingSucceeded {
+			if s.client.WaitForConnection(30*time.Second) || s.client.IsConnected() {
+				return nil
+			}
+			return fmt.Errorf("pairing succeeded but WhatsApp connection was not ready before timeout")
+		}
 		return fmt.Errorf("qr channel closed before pairing completed")
 	}
 
+	if s.client.IsConnected() {
+		return nil
+	}
 	return s.client.Connect()
 }
 

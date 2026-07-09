@@ -34,11 +34,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!lastMessage) return;
 
     if (lastMessage.type === "message:new") {
+      const message = lastMessage.message || lastMessage.data?.message;
+      if (!message) return;
       setConversationsState((prev) =>
         prev.map((c) =>
           c.id === lastMessage.conversationId
-            ? { ...c, lastMessage: lastMessage.content, lastMessageAt: lastMessage.sentAt, unread: c.unread + 1 }
+            ? { ...c, lastMessage: message.content, lastMessageAt: message.sentAt, unread: c.unread + 1 }
             : c
+        )
+      );
+    } else if (lastMessage.type === "conversation:new" && lastMessage.data) {
+      setConversationsState((prev) =>
+        prev.some((item) => item.id === lastMessage.data.id)
+          ? prev
+          : [lastMessage.data, ...prev]
+      );
+    } else if (lastMessage.type === "conversation:updated" && lastMessage.data) {
+      const update = lastMessage.data.conversation || lastMessage.data;
+      setConversationsState((prev) =>
+        prev.map((item) =>
+          item.id === (update.id || lastMessage.data.conversationId)
+            ? {
+                ...item,
+                ...update,
+                lastMessage: update.lastMessage ?? lastMessage.data.lastMessage ?? item.lastMessage,
+                lastMessageAt: update.lastMessageAt ?? lastMessage.data.lastMessageAt ?? item.lastMessageAt,
+              }
+            : item
         )
       );
     }

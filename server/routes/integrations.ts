@@ -7,11 +7,16 @@ import { webhookLimiter, whatsappSendLimiter, whatsappMediaLimiter } from "../mi
 import { addMessageJob } from "../lib/queue.ts";
 import { logger } from "../lib/logger.ts";
 import { uploadBuffer } from "../lib/storage.ts";
+import { emitToConversation, emitToTenant } from "../lib/socket.ts";
 
 const router = Router();
 
 function getWebhookSecret() {
   return process.env.CHATWOOT_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || "";
+}
+
+function getWhatsmeowWebhookSecret() {
+  return process.env.WHATSMEOW_BRIDGE_SECRET || process.env.WEBHOOK_SECRET || "";
 }
 
 function getWhatsmeowBridgeUrl() {
@@ -46,8 +51,7 @@ function whatsmeowIdentityFromStatus(data: any) {
   return { jid, phone, pushName, businessName, avatarUrl };
 }
 
-function assertWebhookSecret(req: Request, res: Response): boolean {
-  const expected = getWebhookSecret();
+function assertWebhookSecret(req: Request, res: Response, expected = getWebhookSecret()): boolean {
   if (!expected) return true;
 
   const provided = req.headers["x-vendaora-signature"]
@@ -60,6 +64,64 @@ function assertWebhookSecret(req: Request, res: Response): boolean {
   }
 
   return true;
+}
+
+function mapRealtimeMessage(message: any) {
+  return {
+    id: message.id,
+    senderType: message.senderType,
+    senderId: message.senderId,
+    role: message.senderType === "contact" ? "user" : message.senderType,
+    channel: message.channel,
+    messageType: message.messageType,
+    content: message.content,
+    mediaUrl: message.mediaUrl,
+    mediaMimeType: message.mediaMimeType,
+    mediaName: message.mediaName,
+    mediaSize: message.mediaSize,
+    metadata: message.metadata,
+    sentAt: message.sentAt,
+    deliveredAt: message.deliveredAt,
+    readAt: message.readAt,
+    createdAt: message.createdAt,
+  };
+}
+
+function mapRealtimeConversation(conversation: any, contact: any, channelInstance: any, message: any) {
+  const metadata = (message?.metadata || {}) as any;
+  return {
+    id: conversation.id,
+    contactId: conversation.contactId,
+    name: contact?.name || "Contato",
+    phone: contact?.phone,
+    email: contact?.email,
+    avatarUrl: contact?.avatarUrl,
+    pushName: contact?.pushName,
+    channel: conversation.channel,
+    status: conversation.status,
+    aiEnabled: conversation.aiEnabled,
+    priority: conversation.priority,
+    assignedUser: null,
+    instance: channelInstance
+      ? {
+          id: channelInstance.id,
+          name: channelInstance.name,
+          status: channelInstance.status,
+          channelName: channelInstance.channel?.name,
+          provider: channelInstance.channel?.provider,
+        }
+      : null,
+    isGroup: !!metadata.isGroup,
+    chatType: metadata.chatType || (metadata.isGroup ? "group" : "private"),
+    remoteJid: metadata.remoteJid || metadata.chatJid || null,
+    lastMessage: message?.content || "",
+    lastMessageAt: conversation.lastMessageAt || message?.sentAt || conversation.createdAt,
+    time: conversation.lastMessageAt || message?.sentAt || conversation.createdAt,
+    unread: 0,
+    slaDueAt: conversation.slaDueAt,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+  };
 }
 
 function asString(value: unknown, fallback = "") {
@@ -133,6 +195,7 @@ async function getOrCreateProviderInstance(tenantId: string, provider: string, n
       channel: { tenantId, provider },
       status: "active",
     },
+    include: { channel: true },
   });
 
   if (existing) return existing;
@@ -155,6 +218,7 @@ async function getOrCreateProviderInstance(tenantId: string, provider: string, n
       name: `${name} principal`,
       status: "active",
     },
+    include: { channel: true },
   });
 }
 
@@ -241,6 +305,7 @@ async function materializeIncomingMessage(input: {
           id: input.instanceId,
           channel: { tenantId: input.tenantId, provider: input.provider },
         },
+        include: { channel: true },
       })
     : await getOrCreateProviderInstance(input.tenantId, input.provider, input.providerName);
 
@@ -257,6 +322,10 @@ async function materializeIncomingMessage(input: {
   );
   const conversationId = stableId(input.provider, input.tenantId, channelInstance.id, input.externalConversationId);
   const now = new Date();
+  const existingConversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { id: true },
+  });
 
   const conversation = await prisma.conversation.upsert({
     where: { id: conversationId },
@@ -317,7 +386,71 @@ async function materializeIncomingMessage(input: {
     }
   }
 
-  return { conversation, message, isNewMessage };
+  return {
+    conversation,
+    contact,
+    channelInstance,
+    message,
+    isNewMessage,
+    isNewConversation: !existingConversation,
+  };
+}
+
+async function applyWhatsmeowReceipt(tenantId: string, body: any) {
+  const messageIds: string[] = Array.isArray(body.messageIds) ? body.messageIds : [];
+  const receiptType = asString(body.receiptType);
+
+  if (messageIds.length === 0) return;
+
+  await prisma.message.updateMany({
+    where: {
+      tenantId,
+      providerMessageId: { in: messageIds },
+    },
+    data: {
+      ...(receiptType === "read" || receiptType === "read-self"
+        ? { readAt: new Date() }
+        : { deliveredAt: new Date() }),
+    },
+  });
+}
+
+function emitIncomingRealtime(input: {
+  tenantId: string
+  conversation: any
+  contact: any
+  channelInstance: any
+  message: any
+  isNewConversation: boolean
+}) {
+  try {
+    const realtimeMessage = mapRealtimeMessage(input.message);
+    const realtimeConversation = mapRealtimeConversation(
+      input.conversation,
+      input.contact,
+      input.channelInstance,
+      input.message,
+    );
+
+    emitToConversation(input.conversation.id, "message:new", {
+      conversationId: input.conversation.id,
+      message: realtimeMessage,
+    });
+
+    if (input.isNewConversation) {
+      emitToTenant(input.tenantId, "conversation:new", realtimeConversation);
+    } else {
+      emitToTenant(input.tenantId, "conversation:updated", {
+        conversationId: input.conversation.id,
+        lastMessage: input.message.content,
+        lastMessageAt: input.message.sentAt,
+        time: input.message.sentAt,
+        conversation: realtimeConversation,
+      });
+    }
+  } catch (error) {
+    logger.error("[Integrations] failed to emit realtime incoming message", { error });
+  }
 }
 
 function extractChatwootPayload(body: any) {
@@ -363,7 +496,7 @@ router.post("/chatwoot/webhook", webhookLimiter, async (req: Request, res: Respo
     return;
   }
 
-  const { conversation, message, isNewMessage } = await materializeIncomingMessage({
+  const { conversation, contact, channelInstance, message, isNewMessage, isNewConversation } = await materializeIncomingMessage({
     tenantId,
     provider: "chatwoot",
     providerName: "Chatwoot",
@@ -381,6 +514,15 @@ router.post("/chatwoot/webhook", webhookLimiter, async (req: Request, res: Respo
   });
 
   if (isNewMessage && message?.senderType === "contact") {
+    emitIncomingRealtime({
+      tenantId,
+      conversation,
+      contact,
+      channelInstance,
+      message,
+      isNewConversation,
+    });
+
     void addMessageJob({
       type: "incoming",
       tenantId,
@@ -569,7 +711,7 @@ router.post("/connections",
 );
 
 router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Response) => {
-  if (!assertWebhookSecret(req, res)) return;
+  if (!assertWebhookSecret(req, res, getWhatsmeowWebhookSecret())) return;
 
   const tenantId = asString(req.headers["x-tenant-id"] || req.query.tenantId || req.body.tenantId || req.body.tenant_id);
   const instanceId = asString(req.headers["x-instance-id"] || req.query.instanceId || req.body.instanceId || req.body.instance_id);
@@ -581,6 +723,12 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
   if (!tenant) {
     res.status(404).json({ error: "Tenant não encontrado" });
+    return;
+  }
+
+  if (asString(req.body.event) === "receipt") {
+    await applyWhatsmeowReceipt(tenantId, req.body);
+    res.status(202).json({ accepted: true, event: "receipt" });
     return;
   }
 
@@ -952,7 +1100,7 @@ router.get("/whatsmeow/health", async (_req: Request, res: Response) => {
 });
 
 router.post("/whatsmeow/incoming/receipt", webhookLimiter, async (req: Request, res: Response) => {
-  if (!assertWebhookSecret(req, res)) return;
+  if (!assertWebhookSecret(req, res, getWhatsmeowWebhookSecret())) return;
 
   const tenantId = asString(req.headers["x-tenant-id"] || req.query.tenantId || req.body.tenantId);
   if (!tenantId) {
@@ -966,22 +1114,7 @@ router.post("/whatsmeow/incoming/receipt", webhookLimiter, async (req: Request, 
     return;
   }
 
-  const messageIds: string[] = req.body.messageIds || [];
-  const receiptType = asString(req.body.receiptType);
-
-  if (messageIds.length > 0) {
-    await prisma.message.updateMany({
-      where: {
-        tenantId,
-        providerMessageId: { in: messageIds },
-      },
-      data: {
-        ...(receiptType === "read" || receiptType === "read-self"
-          ? { readAt: new Date() }
-          : { deliveredAt: new Date() }),
-      },
-    });
-  }
+  await applyWhatsmeowReceipt(tenantId, req.body);
 
   res.status(202).json({ accepted: true });
 });
@@ -1217,7 +1350,7 @@ router.post("/whatsapp-cloud/send/template", whatsappSendLimiter, async (req: Re
 router.get("/wahaplus/status", async (_req: Request, res: Response) => {
   const baseUrl = getWahaplusUrl();
   if (!baseUrl) {
-    res.status(503).json({ connected: false, error: "WAHAPLUS_URL não configurado" });
+    res.json({ connected: false, configured: false, error: "WAHAPLUS_URL nao configurado" });
     return;
   }
 
