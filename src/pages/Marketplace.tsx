@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import { Store, TrendingUp, Sparkles, ArrowRight, Bot } from "lucide-react"
 import { MarketplaceCard } from "@/src/components/marketplace/MarketplaceCard"
 import { SegmentFilter } from "@/src/components/marketplace/SegmentFilter"
 import { api } from "@/src/lib/api"
 
 export default function Marketplace() {
+  const navigate = useNavigate()
   const [agents, setAgents] = useState<any[]>([])
   const [featured, setFeatured] = useState<any[]>([])
   const [trending, setTrending] = useState<any[]>([])
@@ -34,6 +36,28 @@ export default function Marketplace() {
     setLoading(false)
   }
 
+  const installAgent = async (id: string) => {
+    const source = [...agents, ...featured, ...trending].find((agent) => agent.id === id)
+    if (!source) return
+    const created = await api.createAgent({
+      name: source.name,
+      description: source.description || "",
+      segment: source.segment,
+      status: "active",
+      llmConfig: source.llmConfig || {
+        provider: "gemini",
+        model: "gemini-1.5-flash",
+        temperature: 0.7,
+        systemPrompt: source.description || `Voce e um agente especializado em ${source.segment}.`,
+      },
+      channels: source.channels || ["web"],
+      tags: source.tags || [source.segment],
+    })
+    navigate(`/app/agents/${created.agent.id}`)
+  }
+
+  const viewAgent = (id: string) => navigate(`/app/agents/${id}`)
+
   return (
     <div className="space-y-8 pb-10">
       {/* Header */}
@@ -62,7 +86,7 @@ export default function Marketplace() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {featured.map((agent) => (
-              <MarketplaceCard key={agent.id} agent={agent} onInstall={(id) => api.chatWithAgent(id, 'Olá')} onView={() => {}} />
+              <MarketplaceCard key={agent.id} agent={agent} onInstall={installAgent} onView={viewAgent} />
             ))}
           </div>
         </section>
@@ -82,7 +106,7 @@ export default function Marketplace() {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {trending.map((agent) => (
-              <MarketplaceCard key={agent.id} agent={agent} onInstall={(id) => api.chatWithAgent(id, 'Olá')} onView={() => {}} />
+              <MarketplaceCard key={agent.id} agent={agent} onInstall={installAgent} onView={viewAgent} />
             ))}
           </div>
         </section>
@@ -114,7 +138,7 @@ export default function Marketplace() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
           {agents.map((agent) => (
-            <MarketplaceCard key={agent.id} agent={agent} onInstall={(id) => api.chatWithAgent(id, 'Olá')} onView={() => {}} />
+            <MarketplaceCard key={agent.id} agent={agent} onInstall={installAgent} onView={viewAgent} />
           ))}
         </div>
       )}

@@ -49,12 +49,22 @@ export function useWebRTCCall() {
       setError(null);
 
       try {
-        const pc = new RTCPeerConnection();
+        const pc = new RTCPeerConnection({ iceServers: [] });
         pcRef.current = pc;
 
         const dc = pc.createDataChannel("pcm", { ordered: true });
         dc.binaryType = "arraybuffer";
         dcRef.current = dc;
+
+        const handleDataChannelOpen = () => {
+          setStatus("connected");
+          if (!audioRef.current) return;
+          audioRef.current.onAudioData = (data) => {
+            if (dc.readyState === "open") {
+              try { dc.send(data); } catch {}
+            }
+          };
+        };
 
         pc.oniceconnectionstatechange = () => {
           const s = pc.iceConnectionState;
@@ -63,6 +73,8 @@ export function useWebRTCCall() {
             cleanup();
           }
         };
+
+        dc.onopen = handleDataChannelOpen;
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
@@ -90,14 +102,9 @@ export function useWebRTCCall() {
         await audio.start();
         audioRef.current = audio;
 
-        dc.onopen = () => {
-          setStatus("connected");
-          audio.onAudioData = (data) => {
-            if (dc.readyState === "open") {
-              try { dc.send(data); } catch {}
-            }
-          };
-        };
+        if (dc.readyState === "open") {
+          handleDataChannelOpen();
+        }
 
         dc.onmessage = (e) => {
           const int16 = new Int16Array(e.data as ArrayBuffer);

@@ -24,10 +24,41 @@ model Plan {
   updatedAt       DateTime @updatedAt
 
   tenants         Tenant[]
+  whiteLabels     WhiteLabel[]
+}
+
+model WhiteLabel {
+  id              String   @id @default(uuid())
+  name            String
+  slug            String   @unique
+  document        String?
+  email           String?
+  phone           String?
+  status          String   @default("active")
+  customDomain    String?  @unique
+  branding        Json?
+  limits          Json?
+  billingConfig   Json?
+  planId          String?
+  plan            Plan?    @relation(fields: [planId], references: [id])
+  ownerUserId     String?
+  owner           User?    @relation("WhiteLabelOwner", fields: [ownerUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenants         Tenant[]
+  users           User[]   @relation("WhiteLabelUsers")
+
+  @@index([slug])
+  @@index([status])
+  @@index([planId])
+  @@index([ownerUserId])
 }
 
 model Tenant {
   id        String   @id @default(uuid())
+  whiteLabelId String?
+  whiteLabel   WhiteLabel? @relation(fields: [whiteLabelId], references: [id])
   name      String
   slug      String   @unique
   document  String?
@@ -58,26 +89,121 @@ model Tenant {
   calendars         Calendar[]
   appointments      Appointment[]
   auditLogs         AuditLog[]
+  pabxExtensions    PabxExtension[]
+  pabxQueues        PabxQueue[]
+  pabxIvrMenus      PabxIvrMenu[]
+  pabxCallRoutes    PabxCallRoute[]
+  pabxCallLogs      PabxCallLog[]
+  campaigns         DialingCampaign[]
+  agentFlows        AgentFlow[]
+  flowRuns          FlowRun[]
 
   @@index([slug])
+  @@index([whiteLabelId])
   @@index([planId])
   @@index([status])
+}
+
+model AgentFlow {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id])
+  name               String
+  description        String?
+  status             String   @default("draft") // draft | active | paused | archived
+  trigger            String   @default("manual") // manual | new_message | webhook
+  channel            String?
+  publicEnabled      Boolean  @default(false)
+  publishedVersionId String?
+  metadata           Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  versions           FlowVersion[]
+  runs               FlowRun[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, trigger])
+}
+
+model FlowVersion {
+  id          String    @id @default(uuid())
+  flowId      String
+  flow        AgentFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  version     Int
+  status      String    @default("draft") // draft | published | archived
+  graph       Json
+  createdBy   String?
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  runs        FlowRun[]
+
+  @@unique([flowId, version])
+  @@index([flowId, status])
+}
+
+model FlowRun {
+  id             String       @id @default(uuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id])
+  flowId         String
+  flow           AgentFlow    @relation(fields: [flowId], references: [id])
+  versionId      String
+  version        FlowVersion  @relation(fields: [versionId], references: [id])
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  contactId      String?
+  contact        Contact?     @relation(fields: [contactId], references: [id])
+  status         String       @default("running") // running | waiting_input | completed | failed
+  currentNodeId  String?
+  variables      Json?
+  lastInput      String?
+  lastError      String?
+  startedAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  completedAt    DateTime?
+
+  steps          FlowRunStep[]
+
+  @@index([tenantId, status])
+  @@index([flowId, status])
+  @@index([conversationId, status])
+}
+
+model FlowRunStep {
+  id        String   @id @default(uuid())
+  runId     String
+  run       FlowRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  nodeId    String
+  nodeType  String
+  input     Json?
+  output    Json?
+  status    String   @default("completed") // completed | waiting_input | failed
+  createdAt DateTime @default(now())
+
+  @@index([runId, createdAt])
 }
 
 model User {
   id            String   @id @default(uuid())
   tenantId      String
   tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  whiteLabelId  String?
+  whiteLabel    WhiteLabel? @relation("WhiteLabelUsers", fields: [whiteLabelId], references: [id])
   name          String
   email         String   @unique
   passwordHash  String
   avatarUrl     String?
   status        String   @default("active")
   isSuperadmin  Boolean  @default(false)
+  platformRole  String   @default("none") // none | mega_admin
+  roleScope     String   @default("tenant") // platform | whitelabel | tenant
   lastLoginAt   DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  ownedWhiteLabels WhiteLabel[] @relation("WhiteLabelOwner")
   userRoles     UserRole[]
   conversations Conversation[] @relation("AssignedUser")
   deals         Deal[]         @relation("AssignedUser")
@@ -86,8 +212,12 @@ model User {
   appointments  Appointment[]  @relation("AppointmentAssignedUser")
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  pabxExtensions PabxExtension[]
 
   @@index([tenantId])
+  @@index([whiteLabelId])
+  @@index([platformRole])
+  @@index([roleScope])
   @@index([email])
 }
 
@@ -126,6 +256,7 @@ model Department {
   conversations Conversation[]
   tickets       Ticket[]
   ombudsmanCases OmbudsmanCase[]
+  pabxExtensions PabxExtension[]
 }
 
 model Channel {
@@ -165,6 +296,8 @@ model Contact {
   source      String?
   score       Int?
   status      String   @default("active")
+  avatarUrl   String?
+  pushName    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -174,7 +307,9 @@ model Contact {
   deals         Deal[]
   tickets       Ticket[]
   ombudsmanCases OmbudsmanCase[]
-  appointments  Appointment[]
+  appointments    Appointment[]
+  campaignContacts CampaignContact[]
+  flowRuns        FlowRun[]
 
   @@index([tenantId])
   @@index([phone])
@@ -223,6 +358,7 @@ model Conversation {
   tickets           Ticket[]
   ombudsmanCases    OmbudsmanCase[]
   appointments      Appointment[]
+  flowRuns          FlowRun[]
 
   @@index([tenantId, status])
   @@index([tenantId, assignedUserId])
@@ -244,6 +380,10 @@ model Message {
   providerMessageId String?
   messageType       String
   content           String
+  mediaUrl          String?
+  mediaMimeType     String?
+  mediaName         String?
+  mediaSize         Int?
   metadata          Json?
   sentAt            DateTime @default(now())
   deliveredAt       DateTime?
@@ -485,6 +625,156 @@ model AuditLog {
   @@index([entityType, entityId])
 }
 
+// ===== PABX Models =====
+
+model PabxExtension {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  extension   String   // Número do ramal (ex: "101")
+  name        String   // Nome do ramal
+  description String?
+  userId      String?  // Usuário associado ao ramal
+  user        User?    @relation(fields: [userId], references: [id])
+  departmentId String?
+  department  Department? @relation(fields: [departmentId], references: [id])
+  status      String   @default("active") // active | paused | offline
+  ringTimeout Int      @default(30)       // segundos
+  callLimit   Int      @default(2)        // máx chamadas simultâneas
+  mobile      String?  // Número WhatsApp/telefone do ramal
+  email       String?
+  voicemail   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  queueMembers PabxQueueMember[]
+
+  @@unique([tenantId, extension])
+  @@index([tenantId, status])
+  @@index([userId])
+}
+
+model PabxQueue {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  description String?
+  strategy    String   @default("ringall")     // ringall | leastrecent | fewestcalls | random
+  ringTimeout Int      @default(30)            // segundos para cada toque
+  maxWaitTime Int      @default(300)           // tempo máximo na fila (segundos)
+  maxCallers  Int      @default(10)            // máx chamadores na fila
+  musicOnHold String?  // URL do áudio de espera
+  welcomeMsg  String?  // Mensagem de boas-vindas
+  status      String   @default("active")      // active | paused
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     PabxQueueMember[]
+
+  @@index([tenantId, status])
+}
+
+model PabxQueueMember {
+  id          String        @id @default(uuid())
+  queueId     String
+  queue       PabxQueue     @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  extensionId String
+  extension   PabxExtension @relation(fields: [extensionId], references: [id], onDelete: Cascade)
+  priority    Int           @default(1)
+  timeout     Int           @default(30)
+
+  @@unique([queueId, extensionId])
+}
+
+model PabxIvrMenu {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String   // Nome do menu (ex: "Menu Principal")
+  description String?
+  greeting    String?  // Texto da saudação ou URL do áudio TTS
+  greetingType String  @default("text")   // text | audio
+  timeout     Int      @default(10)       // segundos aguardando input
+  timeoutDestType String? // extension | queue | ivr
+  timeoutDestId   String?
+  invalidDestType String? // extension | queue | ivr
+  invalidDestId   String?
+  language    String   @default("pt-BR")
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  options     PabxIvrOption[]
+  callRoutes  PabxCallRoute[] @relation("IvrDestination")
+
+  @@index([tenantId, status])
+}
+
+model PabxIvrOption {
+  id              String      @id @default(uuid())
+  ivrMenuId       String
+  ivrMenu         PabxIvrMenu @relation(fields: [ivrMenuId], references: [id], onDelete: Cascade)
+  digit           String      // "1" a "9", "0", "*", "#"
+  description     String?
+  destinationType String      // extension | queue | ivr
+  destinationId   String
+  createdAt       DateTime    @default(now())
+
+  @@unique([ivrMenuId, digit])
+}
+
+model PabxCallRoute {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  name            String
+  description     String?
+  source          String   // Número de origem ou padrão (ex: "*" = todas)
+  destinationType String   // extension | queue | ivr | voicemail
+  destinationId   String?
+  ivrMenuId       String?  // Se destinationType = "ivr"
+  ivrMenu         PabxIvrMenu? @relation("IvrDestination", fields: [ivrMenuId], references: [id])
+  priority        Int      @default(0)
+  timeSchedule    Json?    // Agendamento (JSON com dias/horários)
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([source])
+}
+
+model PabxCallLog {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  callId          String   @unique
+  sessionId       String?  // WaCalls session ID
+  callerId        String   // Número do chamador
+  callerName      String?
+  direction       String   // inbound | outbound | internal
+  destinationType String?  // extension | queue | ivr
+  destinationId   String?
+  extensionNumber String?
+  queueName       String?
+  ivrName         String?
+  status          String   // ringing | connected | ended | missed | failed
+  duration        Int?     // segundos
+  ringDuration    Int?     // tempo de toque
+  recordingUrl    String?
+  tags            Json?    // Tags para categorização
+  notes           String?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId, startedAt])
+  @@index([callerId])
+  @@index([callId])
+  @@index([status])
+}
+
 model WaCallRecord {
   id        String   @id @default(uuid())
   sessionId String
@@ -500,4 +790,77 @@ model WaCallRecord {
 
   @@index([sessionId])
   @@index([startedAt])
+}
+
+model DialingCampaign {
+  id          String     @id @default(uuid())
+  tenantId    String
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  name        String
+  description String?
+  status      String     @default("draft") // draft | active | paused | completed | cancelled
+  mode        String     @default("predictive") // predictive | progressive | preview
+  scheduleStart DateTime?
+  scheduleEnd   DateTime?
+  maxAttempts  Int       @default(3)
+  intervalSeconds Int    @default(60)
+  agentId      String?   // AiAgent id to connect answered calls
+  sessionId    String?   // WaCalls session to use for calls
+  callerId     String?   // Caller ID / number to display
+  dailyLimit   Int?      // Max calls per day
+  totalContacts Int     @default(0)
+  calledCount  Int      @default(0)
+  answeredCount Int     @default(0)
+  successCount  Int     @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  contacts     CampaignContact[]
+  attempts     CallAttempt[]
+
+  @@index([tenantId, status])
+}
+
+model CampaignContact {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   DialingCampaign @relation(fields: [campaignId], references: [id])
+  contactId  String?
+  contact    Contact? @relation(fields: [contactId], references: [id])
+  name       String?
+  phone      String
+  email      String?
+  metadata   Json?
+  status     String   @default("pending") // pending | called | answered | failed | skipped
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  attempts   CallAttempt[]
+
+  @@index([campaignId, status])
+  @@index([phone])
+}
+
+model CallAttempt {
+  id            String   @id @default(uuid())
+  campaignId    String
+  campaign      DialingCampaign @relation(fields: [campaignId], references: [id])
+  contactId     String
+  campaignContact CampaignContact @relation(fields: [contactId], references: [id])
+  sessionId     String?  // WaCalls session used
+  callId        String?  // WaCalls call ID
+  attempt       Int      @default(1)
+  status        String   @default("pending") // pending | ringing | connected | no_answer | busy | failed | answered
+  duration      Int?     // seconds
+  direction     String   @default("outbound")
+  result        String?  // Resultado da tentativa
+  errorMessage  String?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  recordingUrl  String?
+  createdAt     DateTime @default(now())
+
+  @@index([campaignId])
+  @@index([status])
+  @@index([callId])
 }

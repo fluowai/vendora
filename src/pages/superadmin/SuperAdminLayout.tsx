@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import {
   Shield, LayoutDashboard, Building2, CreditCard, Users, Palette,
-  LogOut, Menu, X, Bot, ChevronDown
+  LogOut, Menu, X
 } from "lucide-react"
 import { cn } from "@/src/lib/utils"
 
@@ -28,7 +28,7 @@ export default function SuperAdminLayout() {
       return
     }
     const parsed = JSON.parse(stored)
-    if (!parsed.isSuperadmin) {
+    if (!parsed.isSuperadmin && parsed.platformRole !== "mega_admin") {
       navigate("/app/dashboard")
       return
     }
@@ -58,7 +58,7 @@ export default function SuperAdminLayout() {
             <Shield className="text-white w-5 h-5" />
           </div>
           <div>
-            <span className="font-display font-bold text-lg text-text">SuperAdmin</span>
+            <span className="font-display font-bold text-lg text-text">Mega Admin</span>
             <p className="text-[10px] text-muted font-bold uppercase tracking-wider">Vendaora 360</p>
           </div>
         </div>
@@ -90,7 +90,7 @@ export default function SuperAdminLayout() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold truncate text-text">{user?.name}</p>
-            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">Superadmin</p>
+            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">Mega Admin</p>
           </div>
         </div>
         <button
@@ -130,18 +130,12 @@ export default function SuperAdminLayout() {
             </button>
             <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-100 rounded-lg">
               <Shield className="w-4 h-4 text-red-600" />
-              <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Super Admin</span>
+              <span className="text-xs font-bold text-red-600 uppercase tracking-wider">Mega Admin</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/app/dashboard")}
-              className="flex items-center gap-2 text-sm text-muted hover:text-text transition-colors bg-bg border border-border rounded-xl px-4 py-2"
-            >
-              <Bot className="w-4 h-4" />
-              Ir para o App
-            </button>
+          <div className="flex items-center gap-3 text-xs text-muted font-bold uppercase tracking-wider">
+            Acesso operacional somente via suporte
           </div>
         </header>
 

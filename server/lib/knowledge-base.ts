@@ -40,6 +40,11 @@ export async function removeDocument(docId: string) {
 }
 
 export async function searchKnowledgeBase(kbId: string, query: string, maxResults = 3) {
+  const detailed = await searchKnowledgeBaseDetailed(kbId, query, maxResults);
+  return detailed.map((result) => result.text);
+}
+
+export async function searchKnowledgeBaseDetailed(kbId: string, query: string, maxResults = 3) {
   const kb = await prisma.knowledgeBase.findUnique({
     where: { id: kbId },
     include: { documents: true },
@@ -47,29 +52,47 @@ export async function searchKnowledgeBase(kbId: string, query: string, maxResult
 
   if (!kb || kb.documents.length === 0) return [];
 
-  const queryLower = query.toLowerCase();
-  const scored: { text: string; score: number }[] = [];
+  const queryLower = normalize(query);
+  const keywords = tokenize(queryLower);
+  const scored: { text: string; score: number; documentId: string; documentName: string; chunkIndex: number }[] = [];
 
   for (const doc of kb.documents) {
-    for (const chunk of doc.chunks as string[]) {
-      const chunkLower = chunk.toLowerCase();
+    const chunks = Array.isArray(doc.chunks) ? doc.chunks as string[] : chunkText(doc.content);
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index];
+      const chunkLower = normalize(chunk);
+      const chunkTokens = new Set(tokenize(chunkLower));
       let score = 0;
 
-      const keywords = queryLower.split(/\s+/).filter((w) => w.length > 3);
       for (const keyword of keywords) {
-        if (chunkLower.includes(keyword)) score += 1;
+        if (chunkTokens.has(keyword)) score += 2;
+        else if (chunkLower.includes(keyword)) score += 1;
       }
 
+      if (queryLower.length > 12 && chunkLower.includes(queryLower)) {
+        score += 8;
+      }
+
+      const coverage = keywords.length
+        ? keywords.filter((keyword) => chunkLower.includes(keyword)).length / keywords.length
+        : 0;
+      score += coverage * 4;
+
       if (score > 0) {
-        scored.push({ text: chunk, score });
+        scored.push({
+          text: chunk,
+          score,
+          documentId: doc.id,
+          documentName: doc.name,
+          chunkIndex: index,
+        });
       }
     }
   }
 
   return scored
     .sort((a, b) => b.score - a.score)
-    .slice(0, maxResults)
-    .map((s) => s.text);
+    .slice(0, maxResults);
 }
 
 function chunkText(text: string, chunkSize = 500, overlap = 50): string[] {
@@ -93,4 +116,21 @@ function chunkText(text: string, chunkSize = 500, overlap = 50): string[] {
   }
 
   return chunks.length > 0 ? chunks : [text.slice(0, chunkSize)];
+}
+
+function normalize(text: string) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenize(text: string) {
+  const stopwords = new Set(["para", "pela", "pelo", "como", "quando", "onde", "qual", "quais", "sobre", "com", "sem", "uma", "um", "das", "dos", "que"]);
+  return normalize(text)
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !stopwords.has(word));
 }

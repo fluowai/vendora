@@ -17,6 +17,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setUserState(JSON.parse(stored));
       } catch {}
     }
+    const token = localStorage.getItem("vendaora_token");
+    if (token) {
+      fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.ok ? res.json() : null)
+        .then((data) => {
+          if (!data?.user) return;
+          setUserState(data.user);
+          localStorage.setItem("vendaora_user", JSON.stringify(data.user));
+        })
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => {

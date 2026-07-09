@@ -33,6 +33,7 @@ export const schemas = {
     channels: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
     knowledgeBaseId: z.string().uuid().optional(),
+    handoffRules: z.any().optional(),
   }),
 
   updateAgent: z.object({
@@ -49,6 +50,7 @@ export const schemas = {
     }).optional(),
     channels: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
+    knowledgeBaseId: z.string().uuid().nullable().optional(),
     handoffRules: z.any().optional(),
   }),
 
@@ -81,11 +83,16 @@ export const schemas = {
     priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
     assignedUserId: z.string().uuid().nullable().optional(),
     departmentId: z.string().uuid().nullable().optional(),
+    contactName: z.string().min(1).max(120).optional(),
   }),
 
   sendMessage: z.object({
     content: z.string().min(1, "Mensagem obrigatória").max(10000),
-    messageType: z.enum(["text", "image", "audio", "video", "file"]).optional(),
+    messageType: z.enum(["text", "image", "audio", "video", "file", "document", "sticker"]).optional(),
+    mediaUrl: z.string().optional(),
+    mediaMimeType: z.string().optional(),
+    mediaName: z.string().optional(),
+    mediaSize: z.number().int().nonnegative().optional(),
     metadata: z.any().optional(),
   }),
 

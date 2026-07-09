@@ -1,5 +1,5 @@
-import { Queue, Worker, Job } from "bullmq";
-import { processIncomingMessage } from "./message-pipeline.ts";
+import { Queue, Worker, Job, type JobsOptions } from "bullmq";
+import { processIncomingMessage, sendViaChannel } from "./message-pipeline.ts";
 import { executeLLM } from "./providers.ts";
 import { emitToConversation } from "./socket.ts";
 import { logger } from "./logger.ts";
@@ -22,6 +22,7 @@ const defaultJobOptions = {
 let messageQueue: Queue | null = null;
 let llmQueue: Queue | null = null;
 let outgoingQueue: Queue | null = null;
+let dialerQueue: Queue | null = null;
 const workers: Worker[] = [];
 
 function getQueues() {
@@ -38,7 +39,11 @@ function getQueues() {
     connection,
     defaultJobOptions,
   });
-  return { messageQueue, llmQueue, outgoingQueue };
+  dialerQueue ||= new Queue("dialer", {
+    connection,
+    defaultJobOptions: { ...defaultJobOptions, attempts: 1, removeOnComplete: 100, removeOnFail: 50 },
+  });
+  return { messageQueue, llmQueue, outgoingQueue, dialerQueue };
 }
 
 export async function addMessageJob(data: {
@@ -48,6 +53,8 @@ export async function addMessageJob(data: {
   tenantId: string
   agentId?: string
   content?: string
+  channel?: string
+  metadata?: any
 }) {
   if (!process.env.REDIS_URL) {
     if (data.type === "incoming") {
@@ -55,6 +62,22 @@ export async function addMessageJob(data: {
         tenantId: data.tenantId,
         conversationId: data.conversationId,
         messageId: data.messageId,
+      });
+    }
+    if (data.type === "outgoing") {
+      const conversation = await prisma.conversation.findFirst({
+        where: { id: data.conversationId, tenantId: data.tenantId },
+        include: {
+          contact: { include: { identities: true } },
+          messages: { orderBy: { sentAt: "asc" }, take: 30 },
+        },
+      });
+      if (!conversation) return { processed: false, reason: "Conversa nao encontrada" };
+      return sendViaChannel(conversation, data.content || "", {
+        mediaUrl: data.metadata?.mediaUrl,
+        mediaType: data.metadata?.messageType,
+        mediaMimeType: data.metadata?.mediaMimeType,
+        mediaName: data.metadata?.mediaName,
       });
     }
     return { processed: false, reason: "Redis nao configurado para este tipo de job" };
@@ -139,9 +162,23 @@ export function setupWorkers() {
   }, { connection, concurrency: 3 });
   workers.push(llmWorker);
 
+  const dialerWorker = new Worker("dialer", async (job: Job) => {
+    logger.info(`[Queue] Processing dialer job: ${job.id} (${job.data.type})`);
+    if (job.data.type === "process") {
+      const { processCampaign, queueNextBatch } = await import("./dialer.ts");
+      const result = await processCampaign(job.data.campaignId as string);
+      if (result.nextBatch) {
+        await queueNextBatch(job.data.campaignId as string, 3000);
+      }
+      return result;
+    }
+    return { processed: true, jobId: job.id };
+  }, { connection, concurrency: 2 });
+  workers.push(dialerWorker);
+
   const outgoingWorker = new Worker("outgoing", async (job: Job) => {
     logger.info(`[Queue] Processing outgoing job: ${job.id}`);
-    const { conversationId, content, channel, mediaUrl, mediaType, caption } = job.data;
+    const { conversationId, content, channel, mediaUrl, mediaType, caption, metadata } = job.data;
 
     const getBridgeHeaders = () => ({
       "Content-Type": "application/json",
@@ -159,7 +196,11 @@ export function setupWorkers() {
         || conv.contact?.phone;
     };
 
-    if (channel === "whatsmeow") {
+    const effectiveMediaUrl = mediaUrl || metadata?.mediaUrl;
+    const effectiveMediaType = mediaType || metadata?.messageType;
+    const effectiveChannel = channel || "whatsmeow";
+
+    if (effectiveChannel === "whatsmeow") {
       const bridgeUrl = (process.env.WHATSMEOW_BRIDGE_URL || "").replace(/\/$/, "");
       if (!bridgeUrl) throw new Error("WHATSMEOW_BRIDGE_URL nao configurado");
 
@@ -178,9 +219,16 @@ export function setupWorkers() {
       let endpoint = "/send";
       let body: any = { to: remoteJid, text: content, conversationId };
 
-      if (mediaUrl) {
+      if (effectiveMediaUrl) {
         endpoint = "/send/media";
-        body = { to: remoteJid, mediaUrl, mediaType: mediaType || "image", caption: caption || content, fileName: job.data.fileName, conversationId };
+        body = {
+          to: remoteJid,
+          mediaUrl: effectiveMediaUrl,
+          mediaType: effectiveMediaType || metadata?.mediaMimeType?.split("/")?.[0] || "document",
+          caption: caption || content,
+          fileName: job.data.fileName || metadata?.mediaName,
+          conversationId,
+        };
       }
 
       const response = await fetch(`${bridgeUrl}${endpoint}`, {
@@ -193,6 +241,51 @@ export function setupWorkers() {
         const data = await response.json().catch(() => ({}));
         throw new Error((data as any).error || `Falha ao enviar: ${response.status}`);
       }
+    } else if (effectiveChannel === "wahaplus") {
+      const wahaplusUrl = (process.env.WAHAPLUS_URL || "").replace(/\/$/, "");
+      if (!wahaplusUrl) throw new Error("WAHAPLUS_URL nao configurado");
+
+      const conversation = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: {
+          channelInstance: true,
+          contact: { include: { identities: true } },
+          messages: { orderBy: { sentAt: "asc" }, take: 30 },
+        },
+      });
+      if (!conversation) throw new Error("Conversa nao encontrada");
+
+      const session = conversation.channelInstance?.name || "default";
+      const chatId = conversation.contact?.identities?.find((i: any) => i.provider === "wahaplus")?.externalId
+        || conversation.contact?.phone;
+      if (!chatId) throw new Error("Destino nao encontrado");
+
+      if (effectiveMediaUrl) {
+        const response = await fetch(`${wahaplusUrl}/api/sendFile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session,
+            chatId,
+            file: effectiveMediaUrl,
+            caption: caption || content,
+          }),
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error((err as any).error || `Falha ao enviar midia: ${response.status}`);
+        }
+      } else {
+        const response = await fetch(`${wahaplusUrl}/api/sendText`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session, chatId, text: content }),
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error((err as any).error || `Falha ao enviar: ${response.status}`);
+        }
+      }
     }
 
     return { processed: true, jobId: job.id };
@@ -202,9 +295,41 @@ export function setupWorkers() {
   logger.info("[Queue] Workers initialized");
 }
 
+export async function addJob(
+  queueName: "dialer",
+  jobType: string,
+  data: Record<string, unknown>,
+  opts?: { delay?: number; priority?: number },
+) {
+  if (!process.env.REDIS_URL) {
+    if (queueName === "dialer" && jobType === "process") {
+      const { processCampaign } = await import("./dialer.ts");
+      return processCampaign(data.campaignId as string);
+    }
+    return null;
+  }
+
+  const queues = getQueues();
+  if (!queues) return null;
+
+  const queueMap: Record<string, Queue> = {
+    dialer: queues.dialerQueue!,
+  };
+
+  const queue = queueMap[queueName];
+  if (!queue) throw new Error(`Queue ${queueName} not found`);
+
+  const jobOpts: JobsOptions = {};
+  if (opts?.delay) jobOpts.delay = opts.delay;
+  if (opts?.priority) jobOpts.priority = opts.priority;
+
+  return queue.add(jobType, data, jobOpts);
+}
+
 export async function shutdownQueues() {
   await Promise.all(workers.map((w) => w.close()));
   if (messageQueue) await messageQueue.close();
   if (llmQueue) await llmQueue.close();
   if (outgoingQueue) await outgoingQueue.close();
+  if (dialerQueue) await dialerQueue.close();
 }

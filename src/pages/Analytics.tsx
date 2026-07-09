@@ -7,7 +7,7 @@ import { cn } from "@/src/lib/utils"
 import { api } from "@/src/lib/api"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, PieChart, Pie, Cell, LineChart, Line, Legend
+  AreaChart, Area, PieChart, Pie, Cell
 } from "recharts"
 
 const segmentData = [
@@ -71,6 +71,26 @@ export default function Analytics() {
     { icon: TrendingUp, label: "Canais", value: String(overview?.conversationsByChannel?.length || 0), change: "conectados", up: true },
   ]
 
+  function downloadAnalyticsCsv() {
+    const rows = [
+      ["Periodo", period],
+      ["Conversas", overview?.totalConversations || 0],
+      ["Contatos", overview?.totalContacts || 0],
+      ["Agentes", overview?.totalAgents || 0],
+      ["Mensagens", overview?.totalMessages || 0],
+      [],
+      ["Dia", "Conversas", "Leads", "Resolucao"],
+      ...daily.map((row) => [row.name, row.conversas, row.leads, row.resolucao]),
+    ]
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n")
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `analytics-${period}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (loading) return <div className="p-8 text-muted">Carregando...</div>
 
   return (
@@ -100,7 +120,7 @@ export default function Analytics() {
               </button>
             ))}
           </div>
-          <button className="p-2.5 bg-surface border border-border rounded-xl hover:bg-bg transition-all">
+          <button onClick={downloadAnalyticsCsv} className="p-2.5 bg-surface border border-border rounded-xl hover:bg-bg transition-all" title="Exportar CSV">
             <Download className="w-4 h-4 text-muted" />
           </button>
         </div>
@@ -120,8 +140,8 @@ export default function Analytics() {
             <h2 className="font-bold text-lg">Volume de Conversas</h2>
             <span className="text-[10px] text-muted">Agentes vs Leads</span>
           </div>
-          <div className="h-[280px] -ml-4">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[280px] -ml-4 min-w-0 min-h-[280px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <BarChart data={daily}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" vertical={false} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} dy={10} />
@@ -137,8 +157,8 @@ export default function Analytics() {
         {/* Segment Distribution */}
         <div className="bg-surface rounded-[2rem] border border-border p-6">
           <h2 className="font-bold text-lg mb-6">Conversas por Segmento</h2>
-          <div className="h-[220px]">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[220px] min-w-0 min-h-[220px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <PieChart>
                 <Pie data={segmentData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={4} dataKey="value">
                   {segmentData.map((entry, idx) => (
@@ -205,8 +225,8 @@ export default function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-surface rounded-[2rem] border border-border p-6">
           <h2 className="font-bold text-lg mb-6">Evolução da Satisfação</h2>
-          <div className="h-[200px] -ml-4">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[200px] -ml-4 min-w-0 min-h-[200px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <AreaChart data={satisfactionData}>
                 <defs>
                   <linearGradient id="satGrad" x1="0" y1="0" x2="0" y2="1">
@@ -242,7 +262,7 @@ export default function Analytics() {
               </div>
             ))}
           </div>
-          <button className="w-full mt-6 py-3 bg-bg border border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-muted hover:text-text transition-all">
+          <button onClick={downloadAnalyticsCsv} className="w-full mt-6 py-3 bg-bg border border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-muted hover:text-text transition-all">
             Gerar Relatório Completo
           </button>
         </div>

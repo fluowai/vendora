@@ -35,12 +35,6 @@ router.get("/", optionalAuth, async (_req: Request, res: Response) => {
   res.json({ agents });
 });
 
-router.get("/:id", async (req: Request, res: Response) => {
-  const agent = await getAgent(req.params.id);
-  if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
-  res.json({ agent });
-});
-
 router.post("/",
   authMiddleware,
   requirePermission("agents", "manage"),
@@ -192,6 +186,12 @@ router.post("/knowledge/:id/search", async (req: Request, res: Response) => {
   const { query, maxResults } = req.body;
   const results = await searchKnowledgeBase(req.params.id, query, maxResults);
   res.json({ results });
+});
+
+router.get("/:id", async (req: Request, res: Response) => {
+  const agent = await getAgent(req.params.id);
+  if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+  res.json({ agent });
 });
 
 export default router;

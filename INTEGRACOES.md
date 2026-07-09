@@ -137,6 +137,9 @@ Para single-container (tudo no mesmo container), descomente o serviço `app-embe
 ### Configuração
 
 ```env
+# Gateway de voz atual. Hoje somente "wacalls" esta implementado.
+VOICE_GATEWAY="wacalls"
+
 # Deixe VAZIO para auto-hosting (recomendado)
 # WACALLS_URL=""
 
@@ -194,9 +197,130 @@ WhatsApp Relay ←→ WaCalls (Go sidecar :8081)
 - **Go 1.26+** (para compilar o WaCalls)
 - Porta `8081` (pode ser alterada via `-addr`)
 
+## WAHA+ (WhatsApp HTTP API Plus — waha-voip) v2.0
+
+**Status:** Completo — mensageria (entrada/saída), sessões e chamadas de voz.
+
+WAHA+ é uma API REST para WhatsApp que roda via Docker, com suporte a múltiplos
+motores (WEBJS, NOWEB, GOWS). Diferente do whatsmeow (Go sidecar), o WAHA+ é
+Node.js/NestJS e gerencia sessões, mensagens e chamadas em um único serviço.
+
+### Setup rápido
+
+```bash
+# 1. Configure .env
+WAHAPLUS_URL="http://localhost:3000"
+WAHAPLUS_PORT="3000"
+WAHAPLUS_IMAGE="devlikeapro/waha"     # Gratuito
+# WAHAPLUS_IMAGE="devlikeapro/waha-plus"  # Plus (licença)
+# WAHAPLUS_LICENSE="sua-licenca-aqui"
+
+# 2. Inicie o container Docker
+npm run wahaplus:start
+
+# Ou via docker compose
+docker compose up -d wahaplus
+
+# 3. Inicie a aplicação
+npm run dev
+```
+
+### Variáveis de ambiente
+
+```env
+WAHAPLUS_URL="http://localhost:3000"
+WAHAPLUS_PORT="3000"
+WAHAPLUS_IMAGE="devlikeapro/waha"
+WAHAPLUS_LICENSE=""
+VOICE_GATEWAY="wahaplus"   # use "wahaplus" em vez de "wacalls"
+```
+
+### Endpoints proxy pelo Node
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET` | `/api/integrations/wahaplus/status` | Status do WAHA+ |
+| `GET` | `/api/integrations/wahaplus/sessions` | Lista sessões |
+| `POST` | `/api/integrations/wahaplus/sessions` | Cria sessão |
+| `DELETE` | `/api/integrations/wahaplus/sessions/:sid` | Remove sessão |
+| `GET` | `/api/integrations/wahaplus/sessions/:sid/qr` | QR code da sessão |
+| `POST` | `/api/integrations/wahaplus/send` | Envia mensagem |
+| `GET` | `/api/integrations/wahaplus/sessions/:sid/calls` | Chamadas ativas |
+| `POST` | `/api/integrations/wahaplus/sessions/:sid/calls` | Inicia chamada de voz |
+| `POST` | `/api/integrations/wahaplus/sessions/:sid/calls/:id/webrtc` | Troca SDP WebRTC |
+| `POST` | `/api/integrations/wahaplus/sessions/:sid/calls/:id/accept` | Aceita chamada |
+| `POST` | `/api/integrations/wahaplus/sessions/:sid/calls/:id/reject` | Rejeita chamada |
+| `DELETE` | `/api/integrations/wahaplus/sessions/:sid/calls/:id` | Encerra chamada |
+| `GET` | `/api/integrations/wahaplus/sessions/:sid/history` | Histórico de chamadas |
+
+### Mensageria WhatsApp com WAHA+
+
+O WAHA+ gerencia mensagens de texto e mídia de forma equivalente ao whatsmeow:
+
+**Entrada (incoming):** Mensagens recebidas via SSE (`message` event) são
+persistidas no banco (Contact, Conversation, Message) e encaminhadas para a
+fila de processamento (`addMessageJob`). O frontend recebe atualizações em
+tempo real via Socket.IO (`conversation:updated`).
+
+**Saída (outgoing):** Mensagens enviadas pelo Inbox são roteadas pelo worker
+`outgoing` da fila BullMQ. Quando `conversation.channel === "wahaplus"`, o
+worker chama a API REST do WAHA+ (`/api/sendText` ou `/api/sendFile`). A
+sessão WAHA+ utilizada é definida pelo `channelInstance.name`.
+
+O canal `wahaplus` aparece no Inbox com ícone roxo (CPU) para identificar
+conversações WAHA+.
+
+### Chamadas de Voz com WAHA+
+
+O frontend (página **Chamadas**) exibe um seletor de engine no topo: **WaCalls v1.0**
+e **WAHA+ v2.0**. Cada aba mostra sessões e controles de chamada do respectivo
+engine. As sessões de ambos os motores coexistem via Socket.IO — cada uma
+identificada pelo campo `engine` ("wacalls" ou "wahaplus").
+
+As chamadas de voz do WAHA+ usam WebRTC (mesmo fluxo do WaCalls) e requerem
+que a sessão esteja pareada (estado "WORKING").
+
+### Eventos em tempo real (Socket.IO)
+
+| Evento | Descrição |
+|--------|-----------|
+| `wahaplus:incoming` | Chamada recebida |
+| `wahaplus:status` | Mudança de status da chamada |
+| `wahaplus:ended` | Chamada encerrada |
+| `wahaplus:list` | Lista de chamadas ativas |
+| `wahaplus:sessions` | Lista de sessões atualizada |
+| `wahaplus:qr` | QR code para pareamento |
+| `wahaplus:auth` | Estado de autenticação |
+| `wahaplus:message` | Mensagem recebida |
+
+### Arquitetura
+
+```
+WhatsApp Relay ←→ WAHA+ (Docker :3000)
+                       ↓ SSE events
+                 WahaplusSSEBridge (Node)
+                       ↓ Socket.IO
+                 Frontend React
+                       ↓ HTTP proxy
+                 Express /api/integrations/wahaplus/* → WAHA+ API
+```
+
+### Dependências
+
+- **Docker** (obrigatório para rodar o WAHA+)
+- Porta `3000` (configurável via `WAHAPLUS_PORT`)
+
+### Scripts disponíveis
+
+```bash
+npm run wahaplus:setup    # Baixa imagem Docker e configura
+npm run wahaplus:start    # Inicia container Docker
+npm run wahaplus:stop     # Para o container
+```
+
 ## Status geral
 
 ```text
 GET /api/integrations/status?tenantId=<TENANT_ID>
-GET /api/calls/bridge/status  (status do sidecar WaCalls)
+GET /api/calls/bridge/status  (status dos gateways — WaCalls e WAHA+)
 ```

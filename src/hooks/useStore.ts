@@ -8,6 +8,9 @@ interface User {
   plan: string
   isSuperadmin: boolean
   tenantId: string
+  whiteLabelId?: string | null
+  platformRole?: "none" | "mega_admin" | string
+  roleScope?: "platform" | "whitelabel" | "tenant" | string
   permissions?: string[]
 }
 

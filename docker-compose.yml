@@ -36,9 +36,17 @@ services:
       WHATSMEOW_BRIDGE_SECRET: "${WHATSMEOW_BRIDGE_SECRET}"
     volumes:
       - whatsmeow_data:/data
-    depends_on:
-      app:
-        condition: service_started
+    restart: unless-stopped
+
+  wahaplus:
+    image: ${WAHAPLUS_IMAGE:-devlikeapro/waha}
+    ports:
+      - "${WAHAPLUS_PORT:-3000}:3000"
+    environment:
+      WAHA_LICENSE_KEY: "${WAHAPLUS_LICENSE:-}"
+    volumes:
+      - wahaplus_data:/app/.sessions
+      - wahaplus_data:/app/.media
     restart: unless-stopped
 
   wacalls:
@@ -51,6 +59,30 @@ services:
     volumes:
       - wacalls_data:/data
     command: ["-addr", ":8081", "-db", "/data/wacalls.db"]
+    restart: unless-stopped
+
+  # woozapi2 — Novo sistema: WAHA para mensagens + wacall para chamadas
+  woozapi2-waha:
+    image: ${WOOZAPI2_WAHA_IMAGE:-devlikeapro/waha}
+    ports:
+      - "${WOOZAPI2_WAHA_PORT:-3002}:3000"
+    environment:
+      WAHA_LICENSE_KEY: "${WOOZAPI2_WAHA_LICENSE:-}"
+    volumes:
+      - woozapi2_waha_data:/app/.sessions
+      - woozapi2_waha_data:/app/.media
+    restart: unless-stopped
+
+  woozapi2-wacall:
+    build:
+      context: ./wacalls-server
+    ports:
+      - "${WOOZAPI2_WACALL_PORT:-8082}:8081"
+    environment:
+      WACALLS_PORT: "8081"
+    volumes:
+      - woozapi2_wacall_data:/data
+    command: ["-addr", ":8081", "-db", "/data/woozapi2.db"]
     restart: unless-stopped
 
   app:
@@ -71,6 +103,10 @@ services:
       WHATSMEOW_BRIDGE_SECRET: "${WHATSMEOW_BRIDGE_SECRET}"
       WHATSMEOW_WEBHOOK_URL: "http://app:3333/api/integrations/whatsmeow/incoming?tenantId=seed-tenant"
       WACALLS_URL: "http://wacalls:8081"
+      WAHAPLUS_URL: "http://wahaplus:3000"
+      WAHAPLUS_IMAGE: "${WAHAPLUS_IMAGE:-devlikeapro/waha}"
+      WOOZAPI2_WAHA_URL: "http://woozapi2-waha:3000"
+      WOOZAPI2_WACALL_URL: "http://woozapi2-wacall:8081"
       SENTRY_DSN: "${SENTRY_DSN}"
       GEMINI_API_KEY: "${GEMINI_API_KEY}"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"
@@ -88,3 +124,6 @@ volumes:
   pgdata:
   whatsmeow_data:
   wacalls_data:
+  wahaplus_data:
+  woozapi2_waha_data:
+  woozapi2_wacall_data:

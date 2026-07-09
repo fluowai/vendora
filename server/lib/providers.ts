@@ -24,8 +24,11 @@ export async function executeLLM(config: LLMConfig, prompt: string, context?: st
 }
 
 async function executeGemini(config: LLMConfig, prompt: string, context?: string): Promise<LLMResponse> {
+  const apiKey = config.apiKey || process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error('Gemini API key not configured')
+
   const ai = new GoogleGenAI({
-    apiKey: config.apiKey || process.env.GEMINI_API_KEY,
+    apiKey,
   })
 
   const systemInstruction = context

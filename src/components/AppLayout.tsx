@@ -4,7 +4,6 @@ import {
   MessageSquare, 
   Trello, 
   Bot, 
-  Megaphone, 
   Store,
   BarChart3,
   CreditCard,
@@ -22,11 +21,14 @@ import {
   Shield,
   Plug,
   CalendarDays,
-  Phone
+  Phone,
+  PhoneCall,
+  FileSpreadsheet
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { useState, useEffect } from "react";
+import { GlobalCallHandler } from "./calls/GlobalCallHandler";
 
 const navTop = [
   { icon: LayoutDashboard, label: "Dashboard 360", href: "dashboard" },
@@ -39,8 +41,9 @@ const navTop = [
   { icon: Bot, label: "Agentes IA", href: "agents" },
   { icon: CalendarDays, label: "Agenda", href: "calendar" },
   { icon: Phone, label: "Chamadas", href: "calls" },
+  { icon: PhoneCall, label: "PABX", href: "pabx" },
   { icon: Zap, label: "Automações", href: "automations" },
-  { icon: Megaphone, label: "Campanhas", href: "campaigns" },
+  { icon: FileSpreadsheet, label: "Mailing", href: "campaigns" },
   { icon: Sparkles, label: "Marketplace", href: "marketplace" },
 ]
 
@@ -54,14 +57,56 @@ export default function AppLayout() {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [globalSearch, setGlobalSearch] = useState("");
 
   useEffect(() => {
     setIsMobileMenuOpen(false);
     const stored = localStorage.getItem("vendaora_user")
     if (stored) {
-      try { setUser(JSON.parse(stored)) } catch {}
+      try {
+        const parsed = JSON.parse(stored)
+        if ((parsed.platformRole === "mega_admin" || parsed.isSuperadmin) && !parsed.supportMode) {
+          navigate("/mega-admin")
+          return
+        }
+        setUser(parsed)
+      } catch {}
     }
-  }, [location.pathname]);
+
+    const token = localStorage.getItem("vendaora_token")
+    if (token) {
+      fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.ok ? res.json() : null)
+        .then((data) => {
+          if (!data?.user) return
+          localStorage.setItem("vendaora_user", JSON.stringify(data.user))
+          if ((data.user.platformRole === "mega_admin" || data.user.isSuperadmin) && !data.user.supportMode) {
+            navigate("/mega-admin")
+            return
+          }
+          setUser(data.user)
+        })
+        .catch(() => {})
+    }
+  }, [location.pathname, navigate]);
+
+  const exitSupportMode = () => {
+    const megaToken = localStorage.getItem("vendaora_mega_token")
+    const megaUser = localStorage.getItem("vendaora_mega_user")
+    if (megaToken && megaUser) {
+      localStorage.setItem("vendaora_token", megaToken)
+      localStorage.setItem("vendaora_user", megaUser)
+      localStorage.removeItem("vendaora_mega_token")
+      localStorage.removeItem("vendaora_mega_user")
+    }
+    navigate("/mega-admin")
+  }
+
+  const submitGlobalSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    const query = globalSearch.trim();
+    navigate(query ? `/app/inbox?search=${encodeURIComponent(query)}` : "/app/inbox");
+  }
 
   const SidebarContent = () => (
     <>
@@ -119,9 +164,9 @@ export default function AppLayout() {
             )}
           </NavLink>
         ))}
-        {user?.isSuperadmin && (
+        {(user?.isSuperadmin || user?.platformRole === "mega_admin") && !user?.supportMode && (
           <NavLink
-            to="/superadmin"
+            to="/mega-admin"
             className={({ isActive }) => cn(
               "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative",
               isActive 
@@ -130,13 +175,13 @@ export default function AppLayout() {
             )}
           >
             <Shield className="w-5 h-5" />
-            <span className="font-medium text-sm">Super Admin</span>
+            <span className="font-medium text-sm">Mega Admin</span>
           </NavLink>
         )}
       </div>
 
       <div className="p-4 border-t border-border space-y-1">
-        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-muted hover:bg-bg hover:text-text transition-all">
+        <button onClick={() => navigate("/app/settings")} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-muted hover:bg-bg hover:text-text transition-all">
           <Settings className="w-5 h-5" />
           <span className="font-medium text-sm">Configurações</span>
         </button>
@@ -144,6 +189,8 @@ export default function AppLayout() {
           onClick={() => {
             localStorage.removeItem("vendaora_token");
             localStorage.removeItem("vendaora_user");
+            localStorage.removeItem("vendaora_mega_token");
+            localStorage.removeItem("vendaora_mega_user");
             navigate("/");
           }}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 transition-all font-medium"
@@ -157,6 +204,8 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen bg-bg text-text">
+      <GlobalCallHandler />
+
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex w-64 border-r border-border flex-col bg-surface overflow-y-auto">
         <SidebarContent />
@@ -202,14 +251,16 @@ export default function AppLayout() {
             >
               <Menu className="w-6 h-6" />
             </button>
-            <div className="hidden md:flex items-center gap-4 bg-bg px-4 py-2 rounded-xl border border-border w-64 lg:w-96">
+            <form onSubmit={submitGlobalSearch} className="hidden md:flex items-center gap-4 bg-bg px-4 py-2 rounded-xl border border-border w-64 lg:w-96">
               <Search className="w-4 h-4 text-muted" />
               <input 
                 type="text" 
+                value={globalSearch}
+                onChange={(event) => setGlobalSearch(event.target.value)}
                 placeholder="Buscar..." 
                 className="bg-transparent border-none outline-none text-sm w-full"
               />
-            </div>
+            </form>
             {/* Mobile Logo */}
             {!isMobileMenuOpen && (
               <div className="lg:hidden flex items-center gap-2">
@@ -222,12 +273,17 @@ export default function AppLayout() {
           </div>
 
           <div className="flex items-center gap-2 lg:gap-4">
-            {user?.isSuperadmin && (
-              <button onClick={() => navigate("/superadmin")} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-100 rounded-lg text-red-600 text-[10px] font-bold uppercase tracking-wider hover:bg-red-100 transition-all">
-                <Shield className="w-3 h-3" /> Super Admin
+            {user?.supportMode && (
+              <button onClick={exitSupportMode} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-100 rounded-lg text-amber-700 text-[10px] font-bold uppercase tracking-wider hover:bg-amber-100 transition-all">
+                <Shield className="w-3 h-3" /> Suporte: {user.supportTenantName || user.company}
               </button>
             )}
-            <button className="p-2 lg:p-2.5 rounded-xl bg-bg border border-border text-muted hover:text-primary transition-all relative">
+            {(user?.isSuperadmin || user?.platformRole === "mega_admin") && !user?.supportMode && (
+              <button onClick={() => navigate("/mega-admin")} className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-red-50 border border-red-100 rounded-lg text-red-600 text-[10px] font-bold uppercase tracking-wider hover:bg-red-100 transition-all">
+                <Shield className="w-3 h-3" /> Mega Admin
+              </button>
+            )}
+            <button onClick={() => navigate("/app/inbox")} className="p-2 lg:p-2.5 rounded-xl bg-bg border border-border text-muted hover:text-primary transition-all relative" title="Ver mensagens">
               <Bell className="w-5 h-5" />
               <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full border-2 border-surface shadow-sm" />
             </button>
@@ -249,6 +305,17 @@ export default function AppLayout() {
 
         {/* Dynamic Canvas */}
         <div className="flex-1 overflow-auto p-4 lg:p-6 xl:p-8">
+          {user?.supportMode && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-amber-900">Modo suporte ativo</p>
+                <p className="text-xs text-amber-800">Voce esta acessando {user.supportTenantName || user.company} a partir do painel Mega Admin.</p>
+              </div>
+              <button onClick={exitSupportMode} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold">
+                Voltar ao Mega Admin
+              </button>
+            </div>
+          )}
           <motion.div
             key={location.pathname}
             initial={{ opacity: 0, scale: 0.98 }}

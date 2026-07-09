@@ -21,6 +21,12 @@ export interface AuthPayload {
   email: string
   tenantId: string
   isSuperadmin: boolean
+  whiteLabelId?: string | null
+  platformRole?: "none" | "mega_admin" | string
+  roleScope?: "platform" | "whitelabel" | "tenant" | string
+  supportMode?: boolean
+  supportTenantId?: string
+  supportTenantName?: string
   jti?: string
 }
 
@@ -86,6 +92,12 @@ export async function rotateRefreshToken(oldToken: string): Promise<{ accessToke
     email: payload.email,
     tenantId: payload.tenantId,
     isSuperadmin: payload.isSuperadmin,
+    whiteLabelId: payload.whiteLabelId,
+    platformRole: payload.platformRole,
+    roleScope: payload.roleScope,
+    supportMode: payload.supportMode,
+    supportTenantId: payload.supportTenantId,
+    supportTenantName: payload.supportTenantName,
   };
 
   const accessToken = generateToken(tokenPayload);
@@ -101,6 +113,17 @@ export async function revokeAllRefreshTokens(userId: string): Promise<void> {
 
 export function verifyToken(token: string): AuthPayload {
   return jwt.verify(token, getJwtSecret()) as AuthPayload;
+}
+
+function isMegaAdminOperationalAccess(req: Request): boolean {
+  const originalUrl = req.originalUrl || req.url;
+  if (!req.user) return false;
+  if (req.user.supportMode || req.user.platformRole === "support") return false;
+  if (!req.user.isSuperadmin && req.user.platformRole !== "mega_admin") return false;
+
+  return originalUrl.startsWith("/api/")
+    && !originalUrl.startsWith("/api/auth/")
+    && !originalUrl.startsWith("/api/superadmin/");
 }
 
 function isSupabaseToken(token: string): boolean {
@@ -125,8 +148,55 @@ async function resolveSupabaseUser(token: string): Promise<AuthPayload | null> {
       email: sbUser.email || "",
       tenantId: metadata?.tenant_id || sbUser.id,
       isSuperadmin: metadata?.is_superadmin === true,
+      whiteLabelId: metadata?.white_label_id || null,
+      platformRole: metadata?.platform_role || (metadata?.is_superadmin === true ? "mega_admin" : "none"),
+      roleScope: metadata?.role_scope || (metadata?.is_superadmin === true ? "platform" : "tenant"),
     };
   } catch { return null; }
+}
+
+async function enrichAuthPayload(payload: AuthPayload): Promise<AuthPayload> {
+  try {
+    const { default: prisma } = await import("../lib/prisma.ts");
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: {
+        tenantId: true,
+        whiteLabelId: true,
+        isSuperadmin: true,
+        platformRole: true,
+        roleScope: true,
+      },
+    });
+    if (!user) return payload;
+    if (payload.supportMode && user.platformRole === "mega_admin" && payload.supportTenantId) {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: payload.supportTenantId },
+        select: { id: true, name: true, whiteLabelId: true },
+      });
+      if (!tenant) return payload;
+      return {
+        ...payload,
+        tenantId: tenant.id,
+        whiteLabelId: tenant.whiteLabelId,
+        isSuperadmin: false,
+        platformRole: "support",
+        roleScope: "tenant",
+        supportTenantId: tenant.id,
+        supportTenantName: tenant.name,
+      };
+    }
+    return {
+      ...payload,
+      tenantId: user.tenantId,
+      whiteLabelId: user.whiteLabelId,
+      isSuperadmin: user.isSuperadmin || user.platformRole === "mega_admin",
+      platformRole: user.platformRole,
+      roleScope: user.roleScope,
+    };
+  } catch {
+    return payload;
+  }
 }
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -141,10 +211,14 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     if (isSupabaseToken(token)) {
       const user = await resolveSupabaseUser(token);
       if (!user) { res.status(401).json({ error: "Token inválido ou expirado" }); return; }
-      req.user = user;
+      req.user = await enrichAuthPayload(user);
     } else {
       const payload = verifyToken(token);
-      req.user = payload;
+      req.user = await enrichAuthPayload(payload);
+    }
+    if (isMegaAdminOperationalAccess(req)) {
+      res.status(403).json({ error: "Mega Admin deve acessar contas pelo modo suporte no painel Mega Admin" });
+      return;
     }
     next();
   } catch {
@@ -152,16 +226,21 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   }
 }
 
-export async function optionalAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
+export async function optionalAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const auth = req.headers.authorization;
   if (!auth) { next(); return; }
 
   const token = auth.replace("Bearer ", "");
   try {
     if (isSupabaseToken(token)) {
-      req.user = await resolveSupabaseUser(token) || undefined;
+      const user = await resolveSupabaseUser(token);
+      req.user = user ? await enrichAuthPayload(user) : undefined;
     } else {
-      req.user = verifyToken(token);
+      req.user = await enrichAuthPayload(verifyToken(token));
+    }
+    if (isMegaAdminOperationalAccess(req)) {
+      res.status(403).json({ error: "Mega Admin deve acessar contas pelo modo suporte no painel Mega Admin" });
+      return;
     }
   } catch {}
   next();
@@ -169,8 +248,22 @@ export async function optionalAuth(req: Request, _res: Response, next: NextFunct
 
 export function superadminAuth(req: Request, res: Response, next: NextFunction): void {
   authMiddleware(req, res, () => {
-    if (!req.user?.isSuperadmin) {
-      res.status(403).json({ error: "Acesso restrito a administradores" });
+    if (!req.user?.isSuperadmin && req.user?.platformRole !== "mega_admin") {
+      res.status(403).json({ error: "Acesso restrito ao Mega Admin" });
+      return;
+    }
+    next();
+  });
+}
+
+export function whitelabelAuth(req: Request, res: Response, next: NextFunction): void {
+  authMiddleware(req, res, () => {
+    if (req.user?.isSuperadmin || req.user?.platformRole === "mega_admin") {
+      next();
+      return;
+    }
+    if (req.user?.roleScope !== "whitelabel" || !req.user.whiteLabelId) {
+      res.status(403).json({ error: "Acesso restrito ao Super Admin White Label" });
       return;
     }
     next();

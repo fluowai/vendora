@@ -2,25 +2,73 @@ import { Plus, Search, Filter, Ticket, Clock, CheckCircle2, AlertTriangle, Chevr
 import { cn } from "@/src/lib/utils";
 import { api } from "@/src/lib/api";
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 export default function Tickets() {
+  const location = useLocation();
   const [tickets, setTickets] = useState<any[]>([]);
   const [stats, setStats] = useState({ abertos: 0, slaVencido: 0, altaPrioridade: 0, resolvidosMes: 0 });
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<"all" | "aberto" | "pendente" | "resolvido" | "fechado">("all");
+  const [selectedTicket, setSelectedTicket] = useState<any>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const incomingContact = (location.state as any)?.contact;
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    contactName: incomingContact?.name || "",
+    contactEmail: incomingContact?.email || "",
+    contactPhone: incomingContact?.phone || "",
+    priority: "normal",
+  });
 
   useEffect(() => {
     loadTickets();
+    if (incomingContact) setShowCreate(true);
   }, []);
 
-  async function loadTickets() {
+  async function loadTickets(overrides?: { search?: string; status?: string }) {
     try {
-      const data = await api.getTickets();
+      setLoading(true);
+      const nextSearch = overrides?.search ?? search;
+      const nextStatus = overrides?.status ?? status;
+      const data = await api.getTickets({
+        search: nextSearch || undefined,
+        status: nextStatus === "all" ? undefined : nextStatus,
+      });
       setTickets(data.tickets);
       setStats(data.stats);
     } catch (e: any) {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function createTicket(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await api.createTicket(form);
+      setShowCreate(false);
+      setForm({ title: "", description: "", contactName: "", contactEmail: "", contactPhone: "", priority: "normal" });
+      await loadTickets();
+    } catch (e: any) {
+      alert(e.message || "Erro ao criar ticket");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function updateStatus(ticket: any, nextStatus: "aberto" | "pendente" | "resolvido" | "fechado") {
+    try {
+      const { ticket: updated } = await api.updateTicket(ticket.id, { status: nextStatus });
+      setTickets((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setSelectedTicket(updated);
+    } catch (e: any) {
+      alert(e.message || "Erro ao atualizar ticket");
     }
   }
 
@@ -38,10 +86,25 @@ export default function Tickets() {
         <div className="flex items-center gap-2 lg:gap-3">
           <div className="relative hidden lg:block">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-            <input type="text" placeholder="Buscar ticket..." className="w-56 bg-white border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:border-primary/50 transition-all shadow-sm" />
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && loadTickets({ search })}
+              placeholder="Buscar ticket..."
+              className="w-56 bg-white border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:border-primary/50 transition-all shadow-sm"
+            />
           </div>
-          <button className="p-2.5 bg-white border border-border rounded-xl hover:bg-bg transition-all shadow-sm"><Filter className="w-5 h-5 text-muted" /></button>
-          <button className="flex-1 lg:flex-none bg-primary text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-md">
+          <button
+            onClick={() => {
+              const next = status === "all" ? "aberto" : status === "aberto" ? "pendente" : status === "pendente" ? "resolvido" : status === "resolvido" ? "fechado" : "all";
+              setStatus(next);
+              loadTickets({ status: next });
+            }}
+            className="p-2.5 bg-white border border-border rounded-xl hover:bg-bg transition-all shadow-sm"
+            title={`Filtro: ${status}`}
+          ><Filter className="w-5 h-5 text-muted" /></button>
+          <button onClick={() => setShowCreate(true)} className="flex-1 lg:flex-none bg-primary text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-md">
             <Plus className="w-5 h-5" /> Novo Ticket
           </button>
         </div>
@@ -82,7 +145,7 @@ export default function Tickets() {
             </thead>
             <tbody className="divide-y divide-border">
               {tickets.map((t: any) => (
-                <tr key={t.id} className="hover:bg-bg/50 transition-all group cursor-pointer">
+                <tr key={t.id} onClick={() => setSelectedTicket(t)} className="hover:bg-bg/50 transition-all group cursor-pointer">
                   <td className="px-6 py-4">
                     <span className="font-bold text-sm">#{t.id.slice(0, 8)}</span>
                     <p className="text-[10px] text-muted">{new Date(t.createdAt).toLocaleDateString()}</p>
@@ -105,7 +168,7 @@ export default function Tickets() {
                     )}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <button className="p-2 hover:bg-white rounded-lg text-muted opacity-0 group-hover:opacity-100 transition-all border border-transparent group-hover:border-border shadow-sm">
+                    <button onClick={(event) => { event.stopPropagation(); setSelectedTicket(t); }} className="p-2 hover:bg-white rounded-lg text-muted opacity-0 group-hover:opacity-100 transition-all border border-transparent group-hover:border-border shadow-sm">
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   </td>
@@ -118,6 +181,56 @@ export default function Tickets() {
           </table>
         </div>
       </div>
+
+      {showCreate && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowCreate(false)}>
+          <form onSubmit={createTicket} onClick={(event) => event.stopPropagation()} className="w-full max-w-xl bg-white rounded-2xl border border-border p-6 space-y-4 shadow-2xl">
+            <div>
+              <h2 className="font-display font-bold text-xl">Novo Ticket</h2>
+              <p className="text-sm text-muted">Registre um chamado com contato, prioridade e descricao.</p>
+            </div>
+            <input required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Titulo" className="w-full bg-bg border border-border rounded-xl p-3 text-sm outline-none" />
+            <textarea required value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Descricao" rows={4} className="w-full bg-bg border border-border rounded-xl p-3 text-sm outline-none resize-none" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} placeholder="Contato" className="bg-bg border border-border rounded-xl p-3 text-sm outline-none" />
+              <input value={form.contactPhone} onChange={(event) => setForm({ ...form, contactPhone: event.target.value })} placeholder="Telefone" className="bg-bg border border-border rounded-xl p-3 text-sm outline-none" />
+            </div>
+            <input value={form.contactEmail} onChange={(event) => setForm({ ...form, contactEmail: event.target.value })} placeholder="Email" className="w-full bg-bg border border-border rounded-xl p-3 text-sm outline-none" />
+            <select value={form.priority} onChange={(event) => setForm({ ...form, priority: event.target.value })} className="w-full bg-bg border border-border rounded-xl p-3 text-sm outline-none">
+              <option value="low">Baixa</option>
+              <option value="normal">Normal</option>
+              <option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
+            </select>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 rounded-xl bg-bg border border-border text-sm font-bold">Cancelar</button>
+              <button disabled={saving} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-bold disabled:opacity-50">{saving ? "Salvando..." : "Criar ticket"}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {selectedTicket && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedTicket(null)}>
+          <div onClick={(event) => event.stopPropagation()} className="w-full max-w-lg bg-white rounded-2xl border border-border p-6 space-y-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-display font-bold text-xl">{selectedTicket.title}</h2>
+                <p className="text-xs text-muted">#{selectedTicket.id.slice(0, 8)} · {selectedTicket.contact?.name || "Sem contato"}</p>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-bg border border-border text-[10px] font-bold uppercase">{selectedTicket.status}</span>
+            </div>
+            <p className="text-sm text-muted whitespace-pre-wrap">{selectedTicket.description}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(["aberto", "pendente", "resolvido", "fechado"] as const).map((item) => (
+                <button key={item} onClick={() => updateStatus(selectedTicket, item)} className={cn("px-3 py-2 rounded-xl border text-xs font-bold", selectedTicket.status === item ? "bg-primary text-white border-primary" : "bg-bg border-border")}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

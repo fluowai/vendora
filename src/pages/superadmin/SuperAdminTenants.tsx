@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react"
-import { Search, Plus, Building2, MoreVertical, CheckCircle, XCircle, ExternalLink, ArrowLeft } from "lucide-react"
+import { Search, Building2, CheckCircle, XCircle, ExternalLink, ArrowLeft, LifeBuoy } from "lucide-react"
 import { cn } from "@/src/lib/utils"
+import { api } from "@/src/lib/api"
+import { useNavigate } from "react-router-dom"
 
 interface Tenant {
   id: string; name: string; slug: string; email: string; document: string
@@ -9,6 +11,7 @@ interface Tenant {
 }
 
 export default function SuperAdminTenants() {
+  const navigate = useNavigate()
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -78,6 +81,20 @@ export default function SuperAdminTenants() {
     } catch (err) {
       console.error(err)
     }
+  }
+
+  const handleSupport = async (tenant: Tenant) => {
+    const megaToken = localStorage.getItem("vendaora_token")
+    const megaUser = localStorage.getItem("vendaora_user")
+    if (megaToken && megaUser) {
+      localStorage.setItem("vendaora_mega_token", megaToken)
+      localStorage.setItem("vendaora_mega_user", megaUser)
+    }
+
+    const session = await api.startTenantSupportSession(tenant.id)
+    localStorage.setItem("vendaora_token", session.token)
+    localStorage.setItem("vendaora_user", JSON.stringify(session.user))
+    navigate("/app/dashboard")
   }
 
   return (
@@ -198,6 +215,9 @@ export default function SuperAdminTenants() {
                         <div className="flex items-center gap-1">
                           <button onClick={() => handleEdit(tenant)} className="p-2 text-muted hover:text-text hover:bg-bg rounded-lg transition-all">
                             <ExternalLink className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleSupport(tenant)} className="p-2 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-all" title="Prestar suporte">
+                            <LifeBuoy className="w-4 h-4" />
                           </button>
                           <button onClick={() => handleDelete(tenant.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
                             <XCircle className="w-4 h-4" />

@@ -5,6 +5,7 @@ import AppLayout from "./components/AppLayout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
+const PabxLandingPage = lazy(() => import("./pages/PabxLandingPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Inbox = lazy(() => import("./pages/Inbox"));
@@ -22,12 +23,19 @@ const Automations = lazy(() => import("./pages/Automations"));
 const Connections = lazy(() => import("./pages/Connections"));
 const CalendarPage = lazy(() => import("./pages/Calendar"));
 const CallsPage = lazy(() => import("./pages/Calls"));
+const PabxPage = lazy(() => import("./pages/PabxPage"));
+const Settings = lazy(() => import("./pages/Settings"));
 const SuperAdminLayout = lazy(() => import("./pages/superadmin/SuperAdminLayout"));
 const SuperAdminDashboard = lazy(() => import("./pages/superadmin/SuperAdminDashboard"));
 const SuperAdminTenants = lazy(() => import("./pages/superadmin/SuperAdminTenants"));
 const SuperAdminPlans = lazy(() => import("./pages/superadmin/SuperAdminPlans"));
 const SuperAdminUsers = lazy(() => import("./pages/superadmin/SuperAdminUsers"));
 const SuperAdminWhitelabel = lazy(() => import("./pages/superadmin/SuperAdminWhitelabel"));
+const WhiteLabelLayout = lazy(() => import("./pages/whitelabel/WhiteLabelLayout"));
+const WhiteLabelDashboard = lazy(() => import("./pages/whitelabel/WhiteLabelDashboard"));
+const WhiteLabelTenants = lazy(() => import("./pages/whitelabel/WhiteLabelTenants"));
+const WhiteLabelUsers = lazy(() => import("./pages/whitelabel/WhiteLabelUsers"));
+const WhiteLabelSettings = lazy(() => import("./pages/whitelabel/WhiteLabelSettings"));
 
 function PageLoader() {
   return (
@@ -43,15 +51,26 @@ export default function App() {
       <ErrorBoundary>
       <Routes>
         <Route path="/" element={<Suspense fallback={<PageLoader />}><LandingPage /></Suspense>} />
+        <Route path="/pabx" element={<Suspense fallback={<PageLoader />}><PabxLandingPage /></Suspense>} />
         <Route path="/auth" element={<Suspense fallback={<PageLoader />}><AuthPage /></Suspense>} />
 
-        {/* Super Admin Routes */}
-        <Route path="/superadmin" element={<Suspense fallback={<PageLoader />}><SuperAdminLayout /></Suspense>}>
+        <Route path="/superadmin/*" element={<Navigate to="/mega-admin" replace />} />
+
+        {/* Mega Admin Routes */}
+        <Route path="/mega-admin" element={<Suspense fallback={<PageLoader />}><SuperAdminLayout /></Suspense>}>
           <Route index element={<Suspense fallback={<PageLoader />}><SuperAdminDashboard /></Suspense>} />
           <Route path="tenants" element={<Suspense fallback={<PageLoader />}><SuperAdminTenants /></Suspense>} />
           <Route path="plans" element={<Suspense fallback={<PageLoader />}><SuperAdminPlans /></Suspense>} />
           <Route path="users" element={<Suspense fallback={<PageLoader />}><SuperAdminUsers /></Suspense>} />
           <Route path="whitelabel" element={<Suspense fallback={<PageLoader />}><SuperAdminWhitelabel /></Suspense>} />
+        </Route>
+
+        {/* White Label Super Admin Routes */}
+        <Route path="/whitelabel" element={<Suspense fallback={<PageLoader />}><WhiteLabelLayout /></Suspense>}>
+          <Route index element={<Suspense fallback={<PageLoader />}><WhiteLabelDashboard /></Suspense>} />
+          <Route path="tenants" element={<Suspense fallback={<PageLoader />}><WhiteLabelTenants /></Suspense>} />
+          <Route path="users" element={<Suspense fallback={<PageLoader />}><WhiteLabelUsers /></Suspense>} />
+          <Route path="settings" element={<Suspense fallback={<PageLoader />}><WhiteLabelSettings /></Suspense>} />
         </Route>
 
         {/* App Protected Routes */}
@@ -71,8 +90,10 @@ export default function App() {
           <Route path="marketplace" element={<Suspense fallback={<PageLoader />}><Marketplace /></Suspense>} />
           <Route path="analytics" element={<Suspense fallback={<PageLoader />}><Analytics /></Suspense>} />
           <Route path="plans" element={<Suspense fallback={<PageLoader />}><Plans /></Suspense>} />
+          <Route path="settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
           <Route path="campaigns" element={<Suspense fallback={<PageLoader />}><Campaigns /></Suspense>} />
           <Route path="calls" element={<Suspense fallback={<PageLoader />}><CallsPage /></Suspense>} />
+          <Route path="pabx" element={<Suspense fallback={<PageLoader />}><PabxPage /></Suspense>} />
         </Route>
       </Routes>
       </ErrorBoundary>

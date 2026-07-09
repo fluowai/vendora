@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -95,17 +96,17 @@ type buttonContent struct {
 }
 
 type sendListRequest struct {
-	To             string         `json:"to"`
-	Title          string         `json:"title"`
-	Description    string         `json:"description"`
-	ButtonText     string         `json:"buttonText"`
-	Sections       []listSection  `json:"sections"`
-	ConversationID string         `json:"conversationId"`
+	To             string        `json:"to"`
+	Title          string        `json:"title"`
+	Description    string        `json:"description"`
+	ButtonText     string        `json:"buttonText"`
+	Sections       []listSection `json:"sections"`
+	ConversationID string        `json:"conversationId"`
 }
 
 type listSection struct {
-	Title string       `json:"title"`
-	Rows  []listRow    `json:"rows"`
+	Title string    `json:"title"`
+	Rows  []listRow `json:"rows"`
 }
 
 type listRow struct {
@@ -146,10 +147,10 @@ type sendLocationRequest struct {
 }
 
 type sendContactRequest struct {
-	To             string     `json:"to"`
-	ContactName    string     `json:"contactName"`
-	Phone          string     `json:"phone"`
-	ConversationID string     `json:"conversationId"`
+	To             string `json:"to"`
+	ContactName    string `json:"contactName"`
+	Phone          string `json:"phone"`
+	ConversationID string `json:"conversationId"`
 }
 
 type sendStickerRequest struct {
@@ -193,6 +194,10 @@ type healthResponse struct {
 	HasPairingCode   bool   `json:"hasPairingCode"`
 	PasskeyPending   bool   `json:"passkeyPending"`
 	JID              string `json:"jid,omitempty"`
+	Phone            string `json:"phone,omitempty"`
+	PushName         string `json:"pushName,omitempty"`
+	BusinessName     string `json:"businessName,omitempty"`
+	AvatarURL        string `json:"avatarUrl,omitempty"`
 	LastError        string `json:"lastError,omitempty"`
 	UptimeSeconds    int64  `json:"uptimeSeconds"`
 	Version          string `json:"version"`
@@ -466,29 +471,37 @@ func (s *bridgeState) handleIncomingMessage(v *events.Message) {
 	}
 
 	if text == "" && msg.GetButtonsResponseMessage() != nil {
-		text = msg.GetButtonsResponseMessage().GetSelectedButtonId()
+		text = msg.GetButtonsResponseMessage().GetSelectedButtonID()
 	}
 	if text == "" && msg.GetListResponseMessage() != nil {
-		text = msg.GetListResponseMessage().GetSingleSelectReply().GetSelectedRowId()
+		text = msg.GetListResponseMessage().GetSingleSelectReply().GetSelectedRowID()
 	}
 
 	mediaInfo := s.extractMediaInfo(msg)
 	hasMedia := mediaInfo != nil
 	chatJID := v.Info.Chat.String()
-	senderJID := v.Info.Sender.String()
+	senderJID := resolvePhoneJID(v.Info.Sender, v.Info.SenderAlt)
 	isGroup := strings.HasSuffix(chatJID, "@g.us")
 	chatType := "private"
 	if isGroup {
 		chatType = "group"
 	}
+	groupName := ""
+	if isGroup {
+		groupName = s.getGroupName(v.Info.Chat)
+	}
+	avatarURL := s.getProfilePictureURL(v.Info.Chat)
 
 	payload := map[string]any{
-		"id":        v.Info.ID,
-		"messageId": v.Info.ID,
-		"from":      senderJID,
-		"senderJid": senderJID,
-		"remoteJid": chatJID,
-		"chatId":    chatJID,
+		"id":           v.Info.ID,
+		"messageId":    v.Info.ID,
+		"from":         senderJID,
+		"senderJid":    senderJID,
+		"senderAltJid": v.Info.SenderAlt.String(),
+		"remoteJid":    chatJID,
+		"chatId":       chatJID,
+		"groupName":    groupName,
+		"avatarUrl":    avatarURL,
 		"participantJid": func() string {
 			if isGroup {
 				return senderJID
@@ -507,7 +520,7 @@ func (s *bridgeState) handleIncomingMessage(v *events.Message) {
 	if msg.GetButtonsResponseMessage() != nil {
 		payload["interactiveType"] = "button"
 		payload["interactivePayload"] = map[string]any{
-			"id":    msg.GetButtonsResponseMessage().GetSelectedButtonId(),
+			"id":    msg.GetButtonsResponseMessage().GetSelectedButtonID(),
 			"title": msg.GetButtonsResponseMessage().GetSelectedDisplayText(),
 		}
 	}
@@ -515,12 +528,19 @@ func (s *bridgeState) handleIncomingMessage(v *events.Message) {
 	if msg.GetListResponseMessage() != nil {
 		payload["interactiveType"] = "list"
 		payload["interactivePayload"] = map[string]any{
-			"id":    msg.GetListResponseMessage().GetSingleSelectReply().GetSelectedRowId(),
-			"title": msg.GetListResponseMessage().GetSingleSelectReply().GetTitle(),
+			"id":    msg.GetListResponseMessage().GetSingleSelectReply().GetSelectedRowID(),
+			"title": msg.GetListResponseMessage().GetSingleSelectReply().GetSelectedRowID(),
 		}
 	}
 
 	if hasMedia {
+		if data, err := s.client.DownloadAny(context.Background(), msg); err == nil {
+			mediaInfo["dataBase64"] = base64.StdEncoding.EncodeToString(data)
+			mediaInfo["size"] = len(data)
+		} else {
+			mediaInfo["downloadError"] = err.Error()
+			log.Printf("[whatsmeow-bridge] media download failed: %v", err)
+		}
 		payload["media"] = mediaInfo
 	}
 
@@ -529,6 +549,35 @@ func (s *bridgeState) handleIncomingMessage(v *events.Message) {
 	}
 
 	s.enqueueWebhook(payload)
+}
+
+func resolvePhoneJID(primary types.JID, alt types.JID) string {
+	primaryText := primary.String()
+	altText := alt.String()
+	if strings.HasSuffix(primaryText, "@lid") && altText != "" && !strings.HasSuffix(altText, "@lid") {
+		return altText
+	}
+	return primaryText
+}
+
+func (s *bridgeState) getGroupName(jid types.JID) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	info, err := s.client.GetGroupInfo(ctx, jid)
+	if err != nil || info == nil {
+		return ""
+	}
+	return info.Name
+}
+
+func (s *bridgeState) getProfilePictureURL(jid types.JID) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	info, err := s.client.GetProfilePictureInfo(ctx, jid, &whatsmeow.GetProfilePictureParams{Preview: true})
+	if err != nil || info == nil {
+		return ""
+	}
+	return info.URL
 }
 
 func (s *bridgeState) handleReceipt(v *events.Receipt) {
@@ -628,6 +677,19 @@ func (s *bridgeState) extractMediaInfo(msg *waProto.Message) map[string]any {
 			"pageCount":     doc.GetPageCount(),
 			"mediaKey":      doc.GetMediaKey(),
 		}
+	case msg.GetStickerMessage() != nil:
+		sticker := msg.GetStickerMessage()
+		return map[string]any{
+			"type":          "sticker",
+			"url":           sticker.GetURL(),
+			"mimetype":      sticker.GetMimetype(),
+			"fileSha256":    sticker.GetFileSHA256(),
+			"fileEncSha256": sticker.GetFileEncSHA256(),
+			"fileLength":    sticker.GetFileLength(),
+			"height":        sticker.GetHeight(),
+			"width":         sticker.GetWidth(),
+			"mediaKey":      sticker.GetMediaKey(),
+		}
 	default:
 		return nil
 	}
@@ -724,18 +786,33 @@ func (s *bridgeState) postWebhook(payload any) error {
 
 func (s *bridgeState) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	connected := s.connected
+	hasQR := s.currentQR != ""
+	qrExpiresAt := timePtr(s.currentQRUntil)
+	pairingEvent := s.pairingEvent
+	hasPairingCode := s.pairingCode != ""
+	pairingPhone := s.pairingPhone
+	pairingExpiresAt := timePtr(s.pairingExpires)
+	passkeyPending := s.passkeyPending
+	lastError := s.lastError
+	s.mu.RUnlock()
+
+	identity := s.accountIdentity()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"connected":        s.connected,
-		"hasQR":            s.currentQR != "",
-		"qrExpiresAt":      timePtr(s.currentQRUntil),
-		"pairingEvent":     s.pairingEvent,
-		"hasPairingCode":   s.pairingCode != "",
-		"pairingPhone":     s.pairingPhone,
-		"pairingExpiresAt": timePtr(s.pairingExpires),
-		"passkeyPending":   s.passkeyPending,
-		"jid":              jidString(s.client),
-		"lastError":        s.lastError,
+		"connected":        connected,
+		"hasQR":            hasQR,
+		"qrExpiresAt":      qrExpiresAt,
+		"pairingEvent":     pairingEvent,
+		"hasPairingCode":   hasPairingCode,
+		"pairingPhone":     pairingPhone,
+		"pairingExpiresAt": pairingExpiresAt,
+		"passkeyPending":   passkeyPending,
+		"lastError":        lastError,
+		"jid":              identity["jid"],
+		"phone":            identity["phone"],
+		"pushName":         identity["pushName"],
+		"businessName":     identity["businessName"],
+		"avatarUrl":        identity["avatarUrl"],
 	})
 }
 
@@ -749,6 +826,7 @@ func (s *bridgeState) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	lastErr := s.lastError
 	webhookURL := s.webhookURL
 	s.mu.RUnlock()
+	identity := s.accountIdentity()
 
 	writeJSON(w, http.StatusOK, healthResponse{
 		Connected:        connected,
@@ -756,7 +834,11 @@ func (s *bridgeState) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		PairingEvent:     pairingEvent,
 		HasPairingCode:   hasPairingCode,
 		PasskeyPending:   passkeyPending,
-		JID:              jidString(s.client),
+		JID:              identity["jid"],
+		Phone:            identity["phone"],
+		PushName:         identity["pushName"],
+		BusinessName:     identity["businessName"],
+		AvatarURL:        identity["avatarUrl"],
 		LastError:        lastErr,
 		UptimeSeconds:    int64(time.Since(startupTime).Seconds()),
 		Version:          buildVersion,
@@ -1054,35 +1136,30 @@ func (s *bridgeState) handleSendButtons(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var buttons []*waProto.NativeFlowButton
+	buttonType := waProto.ButtonsMessage_Button_RESPONSE
+	headerType := waProto.ButtonsMessage_EMPTY
+	var buttons []*waProto.ButtonsMessage_Button
 	for _, b := range input.Buttons {
 		btnID := b.ID
 		if btnID == "" {
 			btnID = b.Title
 		}
-		buttons = append(buttons, &waProto.NativeFlowButton{
-			ID:   proto.String(btnID),
-			Text: proto.String(b.Title),
+		buttons = append(buttons, &waProto.ButtonsMessage_Button{
+			ButtonID: proto.String(btnID),
+			ButtonText: &waProto.ButtonsMessage_Button_ButtonText{
+				DisplayText: proto.String(b.Title),
+			},
+			Type: &buttonType,
 		})
 	}
 
-	interactive := &waProto.InteractiveMessage{
-		Body: &waProto.InteractiveBody{
-			Text: proto.String(input.Text),
-		},
-		NativeFlowMessage: &waProto.InteractiveNativeFlowMessage{
-			Buttons: buttons,
-		},
-	}
-
-	if input.Footer != "" {
-		interactive.Footer = &waProto.InteractiveFooter{
-			Text: proto.String(input.Footer),
-		}
-	}
-
 	resp, err := s.client.SendMessage(context.Background(), jid, &waProto.Message{
-		InteractiveMessage: interactive,
+		ButtonsMessage: &waProto.ButtonsMessage{
+			ContentText: proto.String(input.Text),
+			FooterText:  proto.String(input.Footer),
+			HeaderType:  &headerType,
+			Buttons:     buttons,
+		},
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
@@ -1130,24 +1207,24 @@ func (s *bridgeState) handleSendList(w http.ResponseWriter, r *http.Request) {
 		btnText = "Ver opções"
 	}
 
-	var sections []*waProto.Section
+	var sections []*waProto.ListMessage_Section
 	for _, sec := range input.Sections {
-		var rows []*waProto.Row
+		var rows []*waProto.ListMessage_Row
 		for _, row := range sec.Rows {
 			rID := row.ID
 			if rID == "" {
 				rID = row.Title
 			}
-			r := &waProto.Row{
-				Title:     proto.String(row.Title),
-				RowID:     proto.String(rID),
+			r := &waProto.ListMessage_Row{
+				Title: proto.String(row.Title),
+				RowID: proto.String(rID),
 			}
 			if row.Description != "" {
 				r.Description = proto.String(row.Description)
 			}
 			rows = append(rows, r)
 		}
-		section := &waProto.Section{
+		section := &waProto.ListMessage_Section{
 			Rows: rows,
 		}
 		if sec.Title != "" {
@@ -1272,8 +1349,7 @@ func (s *bridgeState) handleSendReaction(w http.ResponseWriter, r *http.Request)
 			FromMe:    proto.Bool(true),
 			ID:        proto.String(input.MessageID),
 		},
-		Text:     proto.String(input.Emoji),
-		GroupKey: &waProto.MessageKey{},
+		Text: proto.String(input.Emoji),
 	}
 
 	resp, err := s.client.SendMessage(context.Background(), jid, &waProto.Message{
@@ -1320,9 +1396,9 @@ func (s *bridgeState) handleSendPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var optionVals []*waProto.PollOption
+	var optionVals []*waProto.PollCreationMessage_Option
 	for _, opt := range input.Options {
-		optionVals = append(optionVals, &waProto.PollOption{
+		optionVals = append(optionVals, &waProto.PollCreationMessage_Option{
 			OptionName: proto.String(opt),
 		})
 	}
@@ -1333,9 +1409,9 @@ func (s *bridgeState) handleSendPoll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	poll := &waProto.PollCreationMessage{
-		Name:          proto.String(input.Question),
-		Options:       optionVals,
-		MaxAnswers:    proto.Int32(int32(maxAnswers)),
+		Name:                   proto.String(input.Question),
+		Options:                optionVals,
+		SelectableOptionsCount: proto.Uint32(uint32(maxAnswers)),
 	}
 
 	resp, err := s.client.SendMessage(context.Background(), jid, &waProto.Message{
@@ -1560,7 +1636,7 @@ func (s *bridgeState) handleSendDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = s.client.RevokeMessage(context.Background(), jid, input.MessageID)
+	_, err = s.client.RevokeMessage(context.Background(), jid, input.MessageID)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -1597,7 +1673,7 @@ func (s *bridgeState) handlePresence(w http.ResponseWriter, r *http.Request) {
 		presence = types.PresenceUnavailable
 	}
 
-	err := s.client.SendPresence(presence)
+	err := s.client.SendPresence(context.Background(), presence)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -1776,6 +1852,26 @@ func jidString(client *whatsmeow.Client) string {
 		return ""
 	}
 	return client.Store.ID.String()
+}
+
+func (s *bridgeState) accountIdentity() map[string]string {
+	out := map[string]string{
+		"jid":          "",
+		"phone":        "",
+		"pushName":     "",
+		"businessName": "",
+		"avatarUrl":    "",
+	}
+	if s == nil || s.client == nil || s.client.Store == nil || s.client.Store.ID == nil {
+		return out
+	}
+	jid := *s.client.Store.ID
+	out["jid"] = jid.String()
+	out["phone"] = jid.User
+	out["pushName"] = s.client.Store.PushName
+	out["businessName"] = s.client.Store.BusinessName
+	out["avatarUrl"] = s.getProfilePictureURL(jid)
+	return out
 }
 
 func env(key, fallback string) string {

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import {
   CheckCircle2, Bot, MessageSquare, BarChart3, Globe,
   Users, Shield, Zap, Sparkles, Store, Layers, ArrowRight
@@ -101,6 +102,19 @@ const planosComparacao = [
 
 export default function Plans() {
   const [annual, setAnnual] = useState(false)
+  const navigate = useNavigate()
+
+  function handlePlanAction(planId: string) {
+    if (planId === "free") {
+      navigate("/app/agents")
+      return
+    }
+    if (planId === "enterprise") {
+      navigate("/app/inbox?search=vendas")
+      return
+    }
+    navigate(`/app/settings?plan=${planId}&billing=${annual ? "annual" : "monthly"}`)
+  }
 
   return (
     <div className="space-y-10 pb-10">
@@ -170,6 +184,7 @@ export default function Plans() {
             </div>
 
             <button
+              onClick={() => handlePlanAction(plan.id)}
               className={cn(
                 "w-full py-3.5 rounded-xl text-xs font-bold transition-all mb-8 flex items-center justify-center gap-2",
                 plan.highlighted
@@ -226,7 +241,7 @@ export default function Plans() {
       <div className="bg-gradient-to-r from-primary/10 to-primary/5 rounded-[2.5rem] border border-primary/20 p-10 text-center">
         <h2 className="text-2xl font-display font-bold mb-3">Precisa de uma solução personalizada?</h2>
         <p className="text-muted mb-6 max-w-xl mx-auto">Temos planos customizados para grandes volumes, agências white-label e integrações complexas.</p>
-        <button className="px-8 py-4 bg-primary text-white rounded-2xl font-bold hover:bg-primary/90 transition-all inline-flex items-center gap-2">
+        <button onClick={() => handlePlanAction("enterprise")} className="px-8 py-4 bg-primary text-white rounded-2xl font-bold hover:bg-primary/90 transition-all inline-flex items-center gap-2">
           Falar com Consultor
           <ArrowRight className="w-5 h-5" />
         </button>

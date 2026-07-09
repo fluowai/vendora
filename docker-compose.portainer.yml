@@ -158,12 +158,10 @@ services:
       - |
         set -e
         apk add --no-cache git ca-certificates tzdata build-base
-        if [ ! -x /data/bridge ]; then
-          rm -rf /src
-          git clone --depth 1 https://github.com/fluowai/vendora.git /src
-          cd /src/whatsmeow-bridge
-          go build -o /data/bridge .
-        fi
+        rm -rf /src
+        git clone --depth 1 --branch fix-whatsmeow-bridge https://github.com/fluowai/vendora.git /src
+        cd /src/whatsmeow-bridge
+        go build -o /data/bridge .
         exec /data/bridge
     environment:
       - "PORT=4000"

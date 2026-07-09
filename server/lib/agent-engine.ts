@@ -1,5 +1,7 @@
 import prisma from "./prisma.ts";
+import { executeAgentTool, type AgentToolName } from "./agent-tools.ts";
 import { executeLLM, SEGMENT_PROMPTS } from "./providers.ts";
+import { searchKnowledgeBaseDetailed } from "./knowledge-base.ts";
 import { LLMConfig, AgentSegment, Message } from "../../src/types/index.ts";
 
 interface AgentExecutionResult {
@@ -10,7 +12,15 @@ interface AgentExecutionResult {
     model: string
     provider: string
     tokensUsed: number
+    toolCalls?: any[]
   }
+}
+
+export interface AgentRuntimeContext {
+  tenantId?: string
+  contactId?: string | null
+  conversationId?: string | null
+  userId?: string
 }
 
 export function toAgentResponse(agent: any) {
@@ -32,7 +42,7 @@ export function toAgentResponse(agent: any) {
 
 function fromAgentInput(body: any, defaults: Record<string, any> = {}) {
   const { llmConfig, channels, tags, ...rest } = body;
-  return {
+  const input: any = {
     ...defaults,
     ...rest,
     ...(llmConfig ? {
@@ -41,10 +51,14 @@ function fromAgentInput(body: any, defaults: Record<string, any> = {}) {
       basePrompt: llmConfig.systemPrompt,
       temperature: llmConfig.temperature ?? 0.7,
     } : {}),
-    channels: channels ?? (llmConfig ? ["web"] : undefined),
-    tags: tags ?? [],
     basePrompt: rest.basePrompt || llmConfig?.systemPrompt,
   };
+  if (channels !== undefined) input.channels = channels;
+  if (tags !== undefined) input.tags = tags;
+  if (llmConfig && channels === undefined && defaults.channels !== undefined) input.channels = defaults.channels;
+  if (tags === undefined && defaults.tags !== undefined) input.tags = defaults.tags;
+  if (input.basePrompt === undefined) delete input.basePrompt;
+  return input;
 }
 
 export async function getAllAgents(tenantId?: string) {
@@ -60,7 +74,7 @@ export async function getAgent(id: string) {
 }
 
 export async function createAgent(data: any) {
-  const input = fromAgentInput(data);
+  const input = fromAgentInput(data, { channels: ["web"], tags: [] });
   const agent = await prisma.aiAgent.create({ data: input });
   return toAgentResponse(agent);
 }
@@ -83,7 +97,8 @@ export async function deleteAgent(id: string) {
 export async function executeAgent(
   agent: any,
   userMessage: string,
-  conversationHistory?: Message[]
+  conversationHistory?: Message[],
+  runtimeContext?: AgentRuntimeContext,
 ): Promise<AgentExecutionResult> {
   const llmConfig: LLMConfig = agent.llmConfig || {
     provider: agent.modelProvider as any,
@@ -92,22 +107,31 @@ export async function executeAgent(
     systemPrompt: agent.basePrompt,
   };
 
-  const contextPrompt = buildAgentPrompt(agent, conversationHistory);
+  const contextPrompt = await buildAgentPrompt(agent, conversationHistory, userMessage);
   const response = await executeLLM(llmConfig, userMessage, contextPrompt);
+  const toolCalls = await executeToolCallsFromResponse(agent, response.text, runtimeContext);
+  let finalText = stripToolCalls(response.text).trim();
+  if (toolCalls.length > 0) {
+    const toolSummary = toolCalls
+      .map((call) => `${call.name}: ${call.result.ok ? "ok" : call.result.error}`)
+      .join("; ");
+    finalText = finalText || `Acao executada: ${toolSummary}`;
+  }
 
   return {
-    response: response.text,
+    response: finalText,
     agentId: agent.id,
     agentName: agent.name,
     metadata: {
       model: llmConfig.model,
       provider: llmConfig.provider,
       tokensUsed: (response.usage?.promptTokens ?? 0) + (response.usage?.completionTokens ?? 0),
+      toolCalls,
     },
   };
 }
 
-function buildAgentPrompt(agent: any, history?: Message[]): string {
+async function buildAgentPrompt(agent: any, history?: Message[], userMessage?: string): Promise<string> {
   const parts: string[] = [];
   const systemPrompt = agent.llmConfig?.systemPrompt || agent.basePrompt;
 
@@ -131,7 +155,65 @@ function buildAgentPrompt(agent: any, history?: Message[]): string {
     });
   }
 
+  if (agent.knowledgeBaseId && userMessage) {
+    const snippets = await searchKnowledgeBaseDetailed(agent.knowledgeBaseId, userMessage, 4);
+    if (snippets.length > 0) {
+      parts.push("Base de conhecimento relevante:");
+      snippets.forEach((snippet, index) => {
+        parts.push(`[Fonte ${index + 1}: ${snippet.documentName}] ${snippet.text}`);
+      });
+      parts.push("Use a base de conhecimento acima quando for relevante. Se ela nao cobrir a pergunta, diga isso e siga as regras do agente.");
+    }
+  }
+
+  const rules = typeof agent.handoffRules === "string" ? JSON.parse(agent.handoffRules || "{}") : (agent.handoffRules || {});
+  const allowedTools = Array.isArray(rules.allowedTools) ? rules.allowedTools : [];
+  if (allowedTools.length > 0) {
+    parts.push(`Ferramentas permitidas: ${allowedTools.join(", ")}.`);
+    parts.push(`Para executar uma ferramenta, inclua exatamente uma linha no formato: [TOOL_CALL {"name":"nome_da_ferramenta","args":{}}]. Use ferramentas apenas quando necessario e nunca invente campos obrigatorios.`);
+  }
+
   return parts.join("\n");
+}
+
+function stripToolCalls(text: string) {
+  return text.replace(/\[TOOL_CALL\s+\{[\s\S]*?\}\]/g, "").trim();
+}
+
+function extractToolCalls(text: string): { name: AgentToolName; args: Record<string, any> }[] {
+  const calls: { name: AgentToolName; args: Record<string, any> }[] = [];
+  const regex = /\[TOOL_CALL\s+(\{[\s\S]*?\})\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text))) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (parsed?.name) calls.push({ name: parsed.name, args: parsed.args || {} });
+    } catch {
+    }
+  }
+  return calls.slice(0, 3);
+}
+
+async function executeToolCallsFromResponse(agent: any, text: string, runtimeContext?: AgentRuntimeContext) {
+  const rules = typeof agent.handoffRules === "string" ? JSON.parse(agent.handoffRules || "{}") : (agent.handoffRules || {});
+  const allowedTools = new Set(Array.isArray(rules.allowedTools) ? rules.allowedTools : []);
+  if (!runtimeContext?.tenantId || allowedTools.size === 0) return [];
+
+  const calls = extractToolCalls(text).filter((call) => allowedTools.has(call.name));
+  const results = [];
+  for (const call of calls) {
+    const result = await executeAgentTool({
+      tenantId: runtimeContext.tenantId,
+      userId: runtimeContext.userId,
+      contactId: runtimeContext.contactId,
+      conversationId: runtimeContext.conversationId,
+      aiAgentId: agent.id,
+      name: call.name,
+      args: call.args,
+    });
+    results.push({ name: call.name, args: call.args, result });
+  }
+  return results;
 }
 
 export async function getPublishedAgents() {
