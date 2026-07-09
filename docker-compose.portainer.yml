@@ -152,8 +152,10 @@ services:
 
   whatsmeow-bridge:
     image: golang:1.25-alpine
-    entrypoint: ["sh", "-lc"]
-    command: "set -ex; apk add --no-cache git ca-certificates tzdata build-base; rm -rf /src; git clone --depth 1 --branch codex/fix-login-api-proxy https://github.com/fluowai/vendora.git /src; cd /src/whatsmeow-bridge; exec go run ."
+    command:
+      - sh
+      - -c
+      - "apk add --no-cache git ca-certificates tzdata build-base && rm -rf /src && git clone --depth 1 --branch codex/fix-login-api-proxy https://github.com/fluowai/vendora.git /src && cd /src/whatsmeow-bridge && go run ."
     environment:
       - "PORT=4000"
       - "WHATSMEOW_DB_PATH=file:/data/whatsmeow-v2.db?_pragma=foreign_keys(1)"
