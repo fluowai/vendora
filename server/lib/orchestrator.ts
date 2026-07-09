@@ -1,5 +1,5 @@
 import { Message, Workflow } from "../../src/types/index.ts";
-import { executeAgent, getAgent } from "./agent-engine.ts";
+import { executeAgent, getAgent, type AgentRuntimeContext } from "./agent-engine.ts";
 
 interface OrchestrationResult {
   finalResponse: string
@@ -26,13 +26,14 @@ export async function orchestrateWithAgents(
   primaryAgentId: string,
   message: string,
   supportingAgentIds: string[],
-  history?: Message[]
+  history?: Message[],
+  runtimeContext?: AgentRuntimeContext,
 ): Promise<OrchestrationResult> {
   const steps: OrchestrationResult["steps"] = [];
   const primaryAgent = await getAgent(primaryAgentId);
   if (!primaryAgent) throw new Error(`Agent ${primaryAgentId} not found`);
 
-  const primaryResult = await executeAgent(primaryAgent, message, history);
+  const primaryResult = await executeAgent(primaryAgent, message, history, runtimeContext);
   steps.push({
     agentId: primaryAgent.id,
     agentName: primaryAgent.name,
@@ -57,7 +58,8 @@ export async function orchestrateWithAgents(
       const supportResult = await executeAgent(
         agent,
         `Assunto recebido do agente ${primaryAgent.name}: "${message}"\n\nContexto: ${primaryResult.response}`,
-        history
+        history,
+        runtimeContext,
       );
       steps.push({
         agentId: agent.id,
@@ -108,7 +110,7 @@ export async function executeWorkflow(workflowId: string, input: string, context
       }
     }
 
-    const result = await executeAgent(agent, currentInput);
+    const result = await executeAgent(agent, currentInput, undefined, context);
     steps.push({
       agentId: agent.id,
       agentName: agent.name,

@@ -18,20 +18,61 @@ export default function Ombudsman() {
   const [cases, setCases] = useState<any[]>([]);
   const [stats, setStats] = useState({ totalAbertos: 0, slaVencido: 0, urgentes: 0, resolvidosMes: 0 });
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<"all" | "nova" | "em_apuracao" | "encerrado">("all");
+  const [selectedCase, setSelectedCase] = useState<any>(null);
 
   useEffect(() => {
     loadCases();
   }, []);
 
-  async function loadCases() {
+  async function loadCases(overrides?: { search?: string; status?: string }) {
     try {
-      const data = await api.getOmbudsmanCases();
+      setLoading(true);
+      const nextSearch = overrides?.search ?? search;
+      const nextStatus = overrides?.status ?? status;
+      const data = await api.getOmbudsmanCases({
+        search: nextSearch || undefined,
+        status: nextStatus === "all" ? undefined : nextStatus,
+      });
       setCases(data.cases);
       setStats(data.stats);
     } catch (e: any) {
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function createCase() {
+    const contactName = window.prompt("Nome do manifestante");
+    const category = window.prompt("Categoria", "Atendimento");
+    const description = window.prompt("Descricao da manifestacao");
+    if (!description || description.trim().length < 10) return;
+    try {
+      await api.createOmbudsmanCase({
+        type: "reclamacao",
+        category: category || "Atendimento",
+        description,
+        contactName: contactName || undefined,
+        priority: "normal",
+        severity: "medium",
+        anonymous: !contactName,
+      });
+      await loadCases();
+    } catch (e: any) {
+      alert(e.message || "Erro ao criar protocolo");
+    }
+  }
+
+  async function updateCaseStatus(nextStatus: "nova" | "em_apuracao" | "aguardando_resposta" | "encaminhado" | "encerrado") {
+    if (!selectedCase) return;
+    try {
+      const updated = await api.updateOmbudsmanCase(selectedCase.id, { status: nextStatus });
+      setSelectedCase(updated.case);
+      setCases((items) => items.map((item) => item.id === updated.case.id ? updated.case : item));
+    } catch (e: any) {
+      alert(e.message || "Erro ao atualizar protocolo");
     }
   }
 
@@ -50,10 +91,25 @@ export default function Ombudsman() {
         <div className="flex items-center gap-2 lg:gap-3">
           <div className="relative hidden lg:block">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-            <input type="text" placeholder="Buscar protocolo..." className="w-56 bg-white border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:border-primary/50 transition-all shadow-sm" />
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => event.key === "Enter" && loadCases({ search })}
+              placeholder="Buscar protocolo..."
+              className="w-56 bg-white border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:border-primary/50 transition-all shadow-sm"
+            />
           </div>
-          <button className="p-2.5 bg-white border border-border rounded-xl hover:bg-bg transition-all shadow-sm"><Filter className="w-5 h-5 text-muted" /></button>
-          <button className="flex-1 lg:flex-none bg-primary text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-md">
+          <button
+            onClick={() => {
+              const next = status === "all" ? "nova" : status === "nova" ? "em_apuracao" : status === "em_apuracao" ? "encerrado" : "all";
+              setStatus(next);
+              loadCases({ status: next });
+            }}
+            className="p-2.5 bg-white border border-border rounded-xl hover:bg-bg transition-all shadow-sm"
+            title={`Filtro: ${status}`}
+          ><Filter className="w-5 h-5 text-muted" /></button>
+          <button onClick={createCase} className="flex-1 lg:flex-none bg-primary text-white px-6 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-md">
             <Plus className="w-5 h-5" /> Novo Protocolo
           </button>
         </div>
@@ -95,7 +151,7 @@ export default function Ombudsman() {
             </thead>
             <tbody className="divide-y divide-border">
               {cases.map((p: any) => (
-                <tr key={p.id} className="hover:bg-bg/50 transition-colors group cursor-pointer">
+                <tr key={p.id} onClick={() => setSelectedCase(p)} className="hover:bg-bg/50 transition-colors group cursor-pointer">
                   <td className="px-6 py-4">
                     <span className="font-bold text-sm">{p.protocolNumber}</span>
                     <p className="text-[10px] text-muted">{new Date(p.createdAt).toLocaleDateString()}</p>
@@ -130,7 +186,7 @@ export default function Ombudsman() {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <button className="p-2 hover:bg-white rounded-lg text-muted opacity-0 group-hover:opacity-100 transition-all border border-transparent group-hover:border-border shadow-sm">
+                    <button onClick={(event) => { event.stopPropagation(); setSelectedCase(p); }} className="p-2 hover:bg-white rounded-lg text-muted opacity-0 group-hover:opacity-100 transition-all border border-transparent group-hover:border-border shadow-sm">
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   </td>
@@ -143,6 +199,28 @@ export default function Ombudsman() {
           </table>
         </div>
       </div>
+
+      {selectedCase && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedCase(null)}>
+          <div onClick={(event) => event.stopPropagation()} className="w-full max-w-lg bg-white rounded-2xl border border-border p-6 space-y-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-display font-bold text-xl">{selectedCase.protocolNumber}</h2>
+                <p className="text-xs text-muted">{selectedCase.anonymous ? "Anonimo" : selectedCase.contact?.name || "Sem contato"} · {selectedCase.category}</p>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-bg border border-border text-[10px] font-bold uppercase">{statusLabels[selectedCase.status] || selectedCase.status}</span>
+            </div>
+            <p className="text-sm text-muted whitespace-pre-wrap">{selectedCase.description}</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(["nova", "em_apuracao", "aguardando_resposta", "encaminhado", "encerrado"] as const).map((item) => (
+                <button key={item} onClick={() => updateCaseStatus(item)} className={cn("px-3 py-2 rounded-xl border text-xs font-bold", selectedCase.status === item ? "bg-primary text-white border-primary" : "bg-bg border-border")}>
+                  {statusLabels[item] || item}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

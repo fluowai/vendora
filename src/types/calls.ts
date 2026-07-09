@@ -6,8 +6,12 @@ export interface CallRecord {
   sessionId: string
   callId: string
   owner?: string
+  ownerName?: string
   direction: CallDirection
   peer: string
+  callerPn?: string
+  pushName?: string
+  avatarUrl?: string
   startedAt: number
   status: CallStatus
   endedAt?: number
@@ -21,4 +25,5 @@ export interface WaSession {
   state: SessionState
   paired: boolean
   qr?: string
+  engine?: "wacalls" | "wahaplus"
 }

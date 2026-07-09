@@ -6,6 +6,7 @@ import { validate, schemas } from "../middleware/validate.ts";
 import { webhookLimiter, whatsappSendLimiter, whatsappMediaLimiter } from "../middleware/rate-limit.ts";
 import { addMessageJob } from "../lib/queue.ts";
 import { logger } from "../lib/logger.ts";
+import { uploadBuffer } from "../lib/storage.ts";
 
 const router = Router();
 
@@ -22,6 +23,27 @@ function getWhatsmeowHeaders() {
     "Content-Type": "application/json",
     ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
   } as Record<string, string>;
+}
+
+function getWahaplusUrl() {
+  return (process.env.WAHAPLUS_URL || "").replace(/\/$/, "");
+}
+
+function whatsmeowBridgeError(error?: any) {
+  const message = error?.message || String(error || "");
+  if (!message || message === "fetch failed" || message.includes("ECONNREFUSED")) {
+    return "Bridge WhatsApp offline. Inicie o whatsmeow-bridge na porta 4000 para gerar o QR Code.";
+  }
+  return message;
+}
+
+function whatsmeowIdentityFromStatus(data: any) {
+  const jid = asString(data?.jid);
+  const phone = asString(data?.phone) || jidToPhone(jid);
+  const pushName = asString(data?.pushName || data?.businessName);
+  const businessName = asString(data?.businessName);
+  const avatarUrl = asString(data?.avatarUrl);
+  return { jid, phone, pushName, businessName, avatarUrl };
 }
 
 function assertWebhookSecret(req: Request, res: Response): boolean {
@@ -47,6 +69,52 @@ function asString(value: unknown, fallback = "") {
 
 function isWhatsAppGroupJid(value: string) {
   return value.endsWith("@g.us");
+}
+
+function isLid(value: string) {
+  return /@lid$/i.test(value);
+}
+
+function jidToPhone(value: string) {
+  const cleaned = asString(value).replace(/@.+$/, "").replace(/\D/g, "");
+  return cleaned.length >= 10 ? cleaned : "";
+}
+
+function normalizeWhatsAppJid(value: string) {
+  const trimmed = asString(value).trim();
+  if (!trimmed || isLid(trimmed)) return "";
+  if (trimmed.includes("@")) return trimmed;
+  const phone = jidToPhone(trimmed);
+  return phone ? `${phone}@s.whatsapp.net` : "";
+}
+
+function displayWhatsAppIdentity(input: { pushName?: string; senderName?: string; jid?: string; fallback?: string }) {
+  const name = asString(input.pushName || input.senderName).trim();
+  if (name && !isLid(name)) return name;
+  const phone = jidToPhone(input.jid || "");
+  if (phone) return phone;
+  return input.fallback || "Participante";
+}
+
+function sanitizeWhatsmeowRaw(body: any) {
+  if (!body || typeof body !== "object") return body;
+  const media = body.media ? { ...body.media, dataBase64: undefined } : undefined;
+  return { ...body, ...(media ? { media } : {}) };
+}
+
+async function persistIncomingMedia(tenantId: string, messageId: string, media: any) {
+  if (!media?.dataBase64) return null;
+  const mimeType = asString(media.mimetype || media.mimeType || "application/octet-stream");
+  const buffer = Buffer.from(String(media.dataBase64), "base64");
+  const prefix = `whatsmeow/${tenantId}/${messageId || "incoming"}`;
+  const stored = await uploadBuffer(buffer, mimeType, prefix);
+  return {
+    url: stored.url,
+    key: stored.key,
+    mimeType,
+    name: asString(media.fileName || media.title || `${media.type || "media"}-${messageId}`),
+    size: Number(media.size || media.fileLength || buffer.length) || buffer.length,
+  };
 }
 
 function stableId(...parts: string[]) {
@@ -95,7 +163,24 @@ async function getOrCreateContact(tenantId: string, provider: string, channel: s
     ? await prisma.contactIdentity.findFirst({ where: { tenantId, provider, externalId }, include: { contact: true } })
     : null;
 
-  if (existingIdentity?.contact) return existingIdentity.contact;
+  if (existingIdentity?.contact) {
+    const betterName = payload?.name && payload.name !== existingIdentity.contact.name ? payload.name : undefined;
+    const betterPhone = payload?.phone && payload.phone !== existingIdentity.contact.phone ? payload.phone : undefined;
+    const avatarUrl = payload?.avatarUrl && payload.avatarUrl !== existingIdentity.contact.avatarUrl ? payload.avatarUrl : undefined;
+    const pushName = payload?.pushName && payload.pushName !== existingIdentity.contact.pushName ? payload.pushName : undefined;
+    if (betterName || betterPhone || avatarUrl || pushName) {
+      return prisma.contact.update({
+        where: { id: existingIdentity.contact.id },
+        data: {
+          ...(betterName ? { name: betterName } : {}),
+          ...(betterPhone ? { phone: betterPhone } : {}),
+          ...(avatarUrl ? { avatarUrl } : {}),
+          ...(pushName ? { pushName } : {}),
+        },
+      });
+    }
+    return existingIdentity.contact;
+  }
 
   const name = payload?.name || payload?.sender?.name || payload?.contact?.name || "Contato Chatwoot";
   const email = payload?.email || payload?.sender?.email || payload?.contact?.email;
@@ -108,6 +193,8 @@ async function getOrCreateContact(tenantId: string, provider: string, channel: s
       email,
       phone,
       source: provider,
+      avatarUrl: payload?.avatarUrl || null,
+      pushName: payload?.pushName || null,
     },
   });
 
@@ -142,6 +229,11 @@ async function materializeIncomingMessage(input: {
   content: string
   senderType: string
   metadata?: any
+  messageType?: string
+  mediaUrl?: string | null
+  mediaMimeType?: string | null
+  mediaName?: string | null
+  mediaSize?: number | null
 }) {
   const channelInstance = input.instanceId
     ? await prisma.channelInstance.findFirst({
@@ -211,8 +303,12 @@ async function materializeIncomingMessage(input: {
           senderId: input.senderType === "contact" ? contact.id : input.provider,
           channel: input.provider,
           providerMessageId: input.externalMessageId || null,
-          messageType: "text",
+          messageType: input.messageType || "text",
           content: input.content,
+          mediaUrl: input.mediaUrl || null,
+          mediaMimeType: input.mediaMimeType || null,
+          mediaName: input.mediaName || null,
+          mediaSize: input.mediaSize || null,
           metadata: input.metadata || {},
           sentAt: now,
         },
@@ -333,6 +429,12 @@ router.get("/status", async (req: Request, res: Response) => {
         healthPath: "/api/integrations/whatsmeow/health",
         receiptPath: "/api/integrations/whatsmeow/incoming/receipt",
       },
+      wahaplus: {
+        enabled: !!getWahaplusUrl(),
+        webhookPath: "/api/integrations/wahaplus/incoming",
+        sessionsPath: "/api/integrations/wahaplus/sessions",
+        sendPath: "/api/integrations/wahaplus/send",
+      },
       whatsapp_cloud: {
         enabled: !!getCloudApiConfig().token && !!getCloudApiConfig().phoneNumberId,
         webhookPath: "/api/integrations/whatsapp-cloud/webhook",
@@ -357,22 +459,32 @@ router.get("/connections",
     });
 
     res.json({
-      connections: channels.flatMap((channel) => channel.instances.map((instance) => ({
-        id: instance.id,
-        name: instance.name,
-        status: instance.status,
-        config: instance.config,
-        webhookUrl: (instance.config as any)?.webhookUrl,
-        qrPath: (instance.config as any)?.qrPath,
-        statusPath: (instance.config as any)?.statusPath,
-        channel: {
-          id: channel.id,
-          name: channel.name,
-          provider: channel.provider,
-          status: channel.status,
-          config: channel.config,
-        },
-      }))),
+      connections: channels.flatMap((channel) => channel.instances.map((instance) => {
+        const config = (instance.config || {}) as any;
+        return {
+          id: instance.id,
+          name: instance.name,
+          status: instance.status,
+          config,
+          webhookUrl: config.webhookUrl,
+          qrPath: config.qrPath,
+          statusPath: config.statusPath,
+          jid: config.jid || null,
+          phone: config.phone || null,
+          pushName: config.pushName || null,
+          businessName: config.businessName || null,
+          avatarUrl: config.avatarUrl || null,
+          connectedAt: config.connectedAt || null,
+          lastStatusAt: config.lastStatusAt || null,
+          channel: {
+            id: channel.id,
+            name: channel.name,
+            provider: channel.provider,
+            status: channel.status,
+            config: channel.config,
+          },
+        };
+      })),
     });
   }
 );
@@ -472,7 +584,8 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
     return;
   }
 
-  const from = asString(req.body.from || req.body.senderJid || req.body.sender || req.body.remoteJid || req.body.jid);
+  const rawFrom = asString(req.body.from || req.body.senderJid || req.body.senderAltJid || req.body.sender || req.body.remoteJid || req.body.jid);
+  const from = normalizeWhatsAppJid(rawFrom) || rawFrom;
   const chatJid = asString(req.body.chatId || req.body.remoteJid || req.body.conversationId || from);
   const participantJid = asString(req.body.participantJid || req.body.senderJid || (isWhatsAppGroupJid(chatJid) ? from : ""));
   const messageId = asString(req.body.messageId || req.body.id);
@@ -483,6 +596,17 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
   const messageType = asString(req.body.messageType || (hasMedia ? "media" : "text"));
   const isGroup = req.body.isGroup === true || req.body.chatType === "group" || isWhatsAppGroupJid(chatJid);
   const chatType = isGroup ? "group" : "private";
+  const senderPhone = jidToPhone(from || participantJid);
+  const senderDisplayName = displayWhatsAppIdentity({
+    pushName: req.body.pushName,
+    senderName: req.body.senderName,
+    jid: from || participantJid,
+  });
+  const groupName = asString(req.body.groupName || req.body.chatName || req.body.name || "Grupo WhatsApp");
+  const storedMedia = hasMedia ? await persistIncomingMedia(tenantId, messageId, media).catch((error) => {
+    logger.error("[Whatsmeow] failed to persist incoming media", { error });
+    return null;
+  }) : null;
 
   if (!from || !conversationKey) {
     res.status(400).json({ error: "from/remoteJid obrigatório no payload whatsmeow" });
@@ -498,28 +622,36 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
     externalMessageId: messageId,
     contactExternalId: isGroup ? chatJid : from,
     contactPayload: {
-      name: isGroup
-        ? asString(req.body.groupName || req.body.chatName || req.body.name || "Grupo WhatsApp")
-        : asString(req.body.pushName || req.body.name || from),
-      phone: isGroup ? null : from.replace(/@.+$/, ""),
-      raw: req.body,
+      name: isGroup ? groupName : senderDisplayName,
+      phone: isGroup ? null : senderPhone,
+      pushName: isGroup ? null : senderDisplayName,
+      avatarUrl: asString(req.body.avatarUrl || ""),
+      raw: sanitizeWhatsmeowRaw(req.body),
     },
-    content: text || (hasMedia ? `[${messageType}]` : ""),
+    content: text || media?.caption || (hasMedia ? `[${messageType}]` : ""),
     senderType: "contact",
+    messageType,
+    mediaUrl: storedMedia?.url || null,
+    mediaMimeType: storedMedia?.mimeType || media?.mimetype || null,
+    mediaName: storedMedia?.name || media?.fileName || media?.title || null,
+    mediaSize: storedMedia?.size || Number(media?.fileLength || 0) || null,
     metadata: {
       event: "whatsmeow.message",
       remoteJid: chatJid,
       chatJid,
       senderJid: from,
       participantJid,
-      senderName: req.body.pushName || req.body.senderName || null,
+      senderName: senderDisplayName,
+      senderPhone,
+      groupName,
       isGroup,
       chatType,
       instanceId,
       hasMedia,
-      media,
+      media: media ? { ...media, dataBase64: undefined } : null,
+      storedMedia,
       messageType,
-      raw: req.body,
+      raw: sanitizeWhatsmeowRaw(req.body),
     },
   });
 
@@ -567,16 +699,39 @@ router.get("/whatsmeow/instances/:id/status",
 
     const bridgeUrl = getWhatsmeowBridgeUrl();
     if (!bridgeUrl) {
-      res.status(503).json({ connected: false, error: "WHATSMEOW_BRIDGE_URL não configurado" });
+      res.json({ connected: false, bridgeAvailable: false, error: "WHATSMEOW_BRIDGE_URL não configurado" });
       return;
     }
 
     try {
       const response = await fetch(`${bridgeUrl}/status`);
       const data = await response.json().catch(() => ({}));
-      res.status(response.status).json({ ...data, instanceId: instance.id });
+      const identity = whatsmeowIdentityFromStatus(data);
+      const config = (instance.config || {}) as any;
+      if (response.ok && data.connected && (identity.jid || identity.phone || identity.pushName || identity.avatarUrl)) {
+        await prisma.channelInstance.update({
+          where: { id: instance.id },
+          data: {
+            status: "connected",
+            config: {
+              ...config,
+              ...identity,
+              connectedAt: config.connectedAt || new Date().toISOString(),
+              lastStatusAt: new Date().toISOString(),
+            },
+          },
+        });
+      }
+      res.json({
+        ...data,
+        instanceId: instance.id,
+        bridgeAvailable: response.ok,
+        connected: !!data.connected,
+        ...identity,
+        error: response.ok ? data.error : (data.error || "Bridge WhatsApp indisponivel. Verifique o whatsmeow-bridge."),
+      });
     } catch (error: any) {
-      res.status(503).json({ connected: false, error: error.message || "Bridge whatsmeow indisponível" });
+      res.json({ connected: false, bridgeAvailable: false, error: whatsmeowBridgeError(error) });
     }
   }
 );
@@ -590,7 +745,7 @@ router.get("/whatsmeow/instances/:id/qr",
 
     const bridgeUrl = getWhatsmeowBridgeUrl();
     if (!bridgeUrl) {
-      res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL não configurado" });
+      res.json({ connected: false, bridgeAvailable: false, qr: null, error: "WHATSMEOW_BRIDGE_URL não configurado" });
       return;
     }
 
@@ -608,9 +763,16 @@ router.get("/whatsmeow/instances/:id/qr",
       }
       const response = await fetch(`${bridgeUrl}/qr`);
       const data = await response.json().catch(() => ({}));
-      res.status(response.status).json({ ...data, instanceId: instance.id });
+      res.json({
+        ...data,
+        instanceId: instance.id,
+        bridgeAvailable: response.ok,
+        connected: !!data.connected,
+        qr: data.qr || null,
+        error: response.ok ? data.error : (data.error || "Bridge whatsmeow indisponível"),
+      });
     } catch (error: any) {
-      res.status(503).json({ error: error.message || "Bridge whatsmeow indisponível" });
+      res.json({ connected: false, bridgeAvailable: false, qr: null, error: whatsmeowBridgeError(error) });
     }
   }
 );
@@ -644,7 +806,7 @@ router.post("/whatsmeow/instances/:id/logout",
 
       res.status(response.status).json({ ...data, instanceId: instance.id });
     } catch (error: any) {
-      res.status(503).json({ error: error.message || "Bridge whatsmeow indisponível" });
+      res.status(503).json({ error: whatsmeowBridgeError(error) });
     }
   }
 );
@@ -661,7 +823,7 @@ router.get("/whatsmeow/status", async (_req: Request, res: Response) => {
     const data = await response.json().catch(() => ({}));
     res.status(response.status).json(data);
   } catch (error: any) {
-    res.status(503).json({ connected: false, error: error.message || "Bridge whatsmeow indisponível" });
+    res.status(503).json({ connected: false, error: whatsmeowBridgeError(error) });
   }
 });
 
@@ -677,7 +839,7 @@ router.get("/whatsmeow/qr", async (_req: Request, res: Response) => {
     const data = await response.json().catch(() => ({}));
     res.status(response.status).json(data);
   } catch (error: any) {
-    res.status(503).json({ error: error.message || "Bridge whatsmeow indisponível" });
+    res.status(503).json({ error: whatsmeowBridgeError(error) });
   }
 });
 
@@ -785,7 +947,7 @@ router.get("/whatsmeow/health", async (_req: Request, res: Response) => {
     const data = await response.json().catch(() => ({}));
     res.status(response.status).json(data);
   } catch (error: any) {
-    res.status(503).json({ error: error.message || "Bridge whatsmeow indisponível" });
+    res.status(503).json({ error: whatsmeowBridgeError(error) });
   }
 });
 
@@ -1045,6 +1207,274 @@ router.post("/whatsapp-cloud/send/template", whatsappSendLimiter, async (req: Re
     res.json({ sent: true, messageId: data?.messages?.[0]?.id, result: data });
   } catch (error: any) {
     res.status(502).json({ error: error.message || "Falha ao enviar template" });
+  }
+});
+
+// ============================================================
+// WAHA+ (WhatsApp HTTP API Plus - waha-voip)
+// ============================================================
+
+router.get("/wahaplus/status", async (_req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ connected: false, error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/health`);
+    const data = await response.json().catch(() => ({}));
+    res.json({
+      connected: response.ok,
+      health: data,
+      url: baseUrl,
+    });
+  } catch (error: any) {
+    res.status(503).json({ connected: false, error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.get("/wahaplus/sessions", async (_req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions`);
+    const data = await response.json().catch(() => []);
+    res.json({ sessions: Array.isArray(data) ? data : data?.sessions || [] });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.post("/wahaplus/sessions", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  const { name } = req.body;
+  if (!name) {
+    res.status(400).json({ error: "name é obrigatório" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await response.json().catch(() => ({}));
+    res.status(response.status).json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.delete("/wahaplus/sessions/:sid", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions/${req.params.sid}`, { method: "DELETE" });
+    res.status(response.status).end();
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.get("/wahaplus/sessions/:sid/qr", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/screenshot/${req.params.sid}`);
+    const data = await response.json().catch(() => ({}));
+    res.json({
+      ...data,
+      sessionId: req.params.sid,
+      bridgeAvailable: response.ok,
+      qr: data.qr || data.base64 || null,
+    });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.post("/wahaplus/send", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  const { session, to, text } = req.body;
+  if (!session || !to || !text) {
+    res.status(400).json({ error: "session, to e text são obrigatórios" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sendText`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session, chatId: to, text }),
+    });
+    const data = await response.json().catch(() => ({}));
+    res.status(response.status).json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+// WAHA+ Call endpoints
+router.get("/wahaplus/sessions/:sid/calls", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions/${req.params.sid}/calls`);
+    const data = await response.json().catch(() => []);
+    res.json({ calls: Array.isArray(data) ? data : data?.calls || [] });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.post("/wahaplus/sessions/:sid/calls", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  const { phone } = req.body;
+  if (!phone) {
+    res.status(400).json({ error: "phone é obrigatório" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions/${req.params.sid}/calls`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await response.json().catch(() => ({}));
+    res.status(response.status).json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.post("/wahaplus/sessions/:sid/calls/:callId/webrtc", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  const { sdp_offer } = req.body;
+  if (!sdp_offer) {
+    res.status(400).json({ error: "sdp_offer é obrigatório" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions/${req.params.sid}/calls/${req.params.callId}/webrtc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sdp_offer }),
+    });
+    const data = await response.json().catch(() => ({}));
+    res.status(response.status).json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.post("/wahaplus/sessions/:sid/calls/:callId/accept", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions/${req.params.sid}/calls/${req.params.callId}/accept`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await response.json().catch(() => ({}));
+    res.status(response.status).json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.post("/wahaplus/sessions/:sid/calls/:callId/reject", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions/${req.params.sid}/calls/${req.params.callId}/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await response.json().catch(() => ({}));
+    res.status(response.status).json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.delete("/wahaplus/sessions/:sid/calls/:callId", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions/${req.params.sid}/calls/${req.params.callId}`, {
+      method: "DELETE",
+    });
+    res.status(response.status).end();
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
+  }
+});
+
+router.get("/wahaplus/sessions/:sid/history", async (req: Request, res: Response) => {
+  const baseUrl = getWahaplusUrl();
+  if (!baseUrl) {
+    res.status(503).json({ error: "WAHAPLUS_URL não configurado" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/api/sessions/${req.params.sid}/history`);
+    const data = await response.json().catch(() => ({}));
+    res.json(data);
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponível" });
   }
 });
 

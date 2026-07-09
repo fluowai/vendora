@@ -10,8 +10,12 @@ export interface WaCallRecord {
   sessionId: string
   callId: string
   owner?: string
+  ownerName?: string
   direction: CallDirection
   peer: string
+  callerPn?: string
+  pushName?: string
+  avatarUrl?: string
   startedAt: number
   status: CallStatus
   endedAt?: number
@@ -48,6 +52,24 @@ export interface WaHistoryResponse {
   rows: WaCallRecord[]
 }
 
+export interface WaContactValidationResult {
+  input: string
+  phone: string
+  whatsappPhone?: string
+  jid?: string
+  lid?: string
+  isOnWhatsApp: boolean
+  pushName?: string
+  businessName?: string
+  avatarUrl?: string
+  photoStatus?: string
+  error?: string
+}
+
+export interface WaContactValidationResponse {
+  results: WaContactValidationResult[]
+}
+
 export class WacallsClientError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -55,7 +77,7 @@ export class WacallsClientError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, clientId?: string): Promise<T> {
   const baseUrl = getBaseUrl();
   if (!baseUrl) {
     throw new WacallsClientError(503, "WACALLS_URL not configured");
@@ -63,13 +85,23 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   const res = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(clientId ? { "X-Client-Id": clientId } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "unknown error");
-    throw new WacallsClientError(res.status, text);
+    let message = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed?.error === "string") {
+        message = parsed.error;
+      }
+    } catch {}
+    throw new WacallsClientError(res.status, message);
   }
 
   if (res.status === 204) return undefined as T;
@@ -92,23 +124,26 @@ export const wacalls = {
   pairSession: (sid: string) =>
     request<void>("POST", `/api/sessions/${sid}/pair`),
 
-  startCall: (sid: string, phone: string, record?: boolean) =>
-    request<WaCallResponse>("POST", `/api/sessions/${sid}/calls`, { phone, record }),
+  startCall: (sid: string, phone: string, record?: boolean, clientId?: string) =>
+    request<WaCallResponse>("POST", `/api/sessions/${sid}/calls`, { phone, record }, clientId),
 
-  sendWebRTC: (sid: string, callId: string, sdpOffer: string) =>
-    request<WaWebRTCResponse>("POST", `/api/sessions/${sid}/calls/${callId}/webrtc`, { sdp_offer: sdpOffer }),
+  sendWebRTC: (sid: string, callId: string, sdpOffer: string, clientId?: string) =>
+    request<WaWebRTCResponse>("POST", `/api/sessions/${sid}/calls/${callId}/webrtc`, { sdp_offer: sdpOffer }, clientId),
 
-  acceptCall: (sid: string, callId: string) =>
-    request<{ call: { callId: string } }>("POST", `/api/sessions/${sid}/calls/${callId}/accept`),
+  acceptCall: (sid: string, callId: string, clientId?: string) =>
+    request<{ call: { callId: string } }>("POST", `/api/sessions/${sid}/calls/${callId}/accept`, undefined, clientId),
 
-  rejectCall: (sid: string, callId: string) =>
-    request<{ status: string }>("POST", `/api/sessions/${sid}/calls/${callId}/reject`),
+  rejectCall: (sid: string, callId: string, clientId?: string) =>
+    request<{ status: string }>("POST", `/api/sessions/${sid}/calls/${callId}/reject`, undefined, clientId),
 
-  endCall: (sid: string, callId: string) =>
-    request<void>("DELETE", `/api/sessions/${sid}/calls/${callId}`),
+  endCall: (sid: string, callId: string, clientId?: string) =>
+    request<void>("DELETE", `/api/sessions/${sid}/calls/${callId}`, undefined, clientId),
 
   history: (sid: string) =>
     request<WaHistoryResponse>("GET", `/api/sessions/${sid}/history`),
+
+  validateContacts: (sid: string, phones: string[], enrich = true, clientId?: string) =>
+    request<WaContactValidationResponse>("POST", `/api/sessions/${sid}/contacts/validate`, { phones, enrich }, clientId),
 
   eventsUrl: () => {
     const base = getBaseUrl();

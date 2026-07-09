@@ -4,6 +4,8 @@ import { authMiddleware } from "../middleware/auth.ts";
 import { requirePermission, scopeFilter } from "../middleware/permissions.ts";
 import { validate, schemas } from "../middleware/validate.ts";
 import { emitToConversation, emitToTenant } from "../lib/socket.ts";
+import { addMessageJob } from "../lib/queue.ts";
+import { logger } from "../lib/logger.ts";
 
 const router = Router();
 
@@ -23,6 +25,8 @@ function mapConversation(conversation: any) {
     name: conversation.contact?.name || "Contato",
     phone: conversation.contact?.phone,
     email: conversation.contact?.email,
+    avatarUrl: conversation.contact?.avatarUrl,
+    pushName: conversation.contact?.pushName,
     channel: conversation.channel,
     status: conversation.status,
     aiEnabled: conversation.aiEnabled,
@@ -61,6 +65,10 @@ function mapMessage(message: any) {
     channel: message.channel,
     messageType: message.messageType,
     content: message.content,
+    mediaUrl: message.mediaUrl,
+    mediaMimeType: message.mediaMimeType,
+    mediaName: message.mediaName,
+    mediaSize: message.mediaSize,
     metadata: message.metadata,
     sentAt: message.sentAt,
     deliveredAt: message.deliveredAt,
@@ -241,7 +249,13 @@ router.patch("/:id",
       return;
     }
 
-    const { status, aiEnabled, priority, assignedUserId, departmentId } = req.body;
+    const { status, aiEnabled, priority, assignedUserId, departmentId, contactName } = req.body;
+    if (typeof contactName === "string" && contactName.trim()) {
+      await prisma.contact.update({
+        where: { id: existing.contactId },
+        data: { name: contactName.trim() },
+      });
+    }
     const conversation = await prisma.conversation.update({
       where: { id: existing.id },
       data: { status, aiEnabled, priority, assignedUserId, departmentId },
@@ -268,7 +282,7 @@ router.post("/:id/messages",
   requirePermission("tickets", "write"),
   validate(schemas.sendMessage),
   async (req: Request, res: Response) => {
-    const { content, messageType = "text", metadata } = req.body;
+    const { content, messageType = "text", metadata, mediaUrl, mediaMimeType, mediaName, mediaSize } = req.body;
 
     const conversation = await prisma.conversation.findFirst({
       where: conversationWhere(req, req.params.id),
@@ -288,6 +302,10 @@ router.post("/:id/messages",
         channel: conversation.channel,
         messageType,
         content: content.trim(),
+        mediaUrl: mediaUrl || null,
+        mediaMimeType: mediaMimeType || null,
+        mediaName: mediaName || null,
+        mediaSize: mediaSize || null,
         metadata,
         sentAt: now,
       },
@@ -304,7 +322,51 @@ router.post("/:id/messages",
       message: mapped,
     });
 
+    if (conversation.channel === "whatsmeow" || conversation.channel === "whatsapp_cloud" || conversation.channel === "wahaplus") {
+      addMessageJob({
+        type: "outgoing",
+        tenantId: conversation.tenantId,
+        conversationId: conversation.id,
+        channel: conversation.channel,
+        content: content.trim(),
+        metadata: { messageType, mediaUrl, mediaMimeType, mediaName, mediaSize },
+      }).catch((error) => logger.error("[Conversations] failed to queue outgoing", { error }));
+    }
+
     res.status(201).json({ message: mapped });
+  }
+);
+
+router.delete("/:id/messages/:messageId",
+  requirePermission("tickets", "write"),
+  async (req: Request, res: Response) => {
+    const conversation = await prisma.conversation.findFirst({
+      where: conversationWhere(req, req.params.id),
+      include: { messages: { where: { id: req.params.messageId }, take: 1 } },
+    });
+    if (!conversation || conversation.messages.length === 0) {
+      res.status(404).json({ error: "Mensagem nao encontrada" });
+      return;
+    }
+
+    await prisma.message.delete({ where: { id: req.params.messageId } });
+
+    const lastMessage = await prisma.message.findFirst({
+      where: { conversationId: conversation.id },
+      orderBy: { sentAt: "desc" },
+    });
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: lastMessage?.sentAt || null },
+    });
+
+    emitToConversation(conversation.id, "message:deleted", {
+      conversationId: conversation.id,
+      messageId: req.params.messageId,
+      lastMessage: lastMessage ? mapMessage(lastMessage) : null,
+    });
+
+    res.json({ success: true, lastMessage: lastMessage ? mapMessage(lastMessage) : null });
   }
 );
 

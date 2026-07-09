@@ -9,6 +9,7 @@ describe("Knowledge Base", () => {
     expect(mod.addDocument).toBeDefined();
     expect(mod.removeDocument).toBeDefined();
     expect(mod.searchKnowledgeBase).toBeDefined();
+    expect(mod.searchKnowledgeBaseDetailed).toBeDefined();
   });
 
   it("should export searchKnowledgeBase with correct signature", async () => {

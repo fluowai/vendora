@@ -10,7 +10,7 @@ interface RouteResult {
 }
 
 export async function routeMessage(tenantId: string, message: string, conversationId?: string): Promise<RouteResult> {
-  const [agents, conversation] = await Promise.all([
+  const [allAgents, conversation] = await Promise.all([
     prisma.aiAgent.findMany({
       where: { tenantId, enabled: true, status: "active" },
     }),
@@ -18,6 +18,21 @@ export async function routeMessage(tenantId: string, message: string, conversati
       ? prisma.conversation.findUnique({ where: { id: conversationId }, include: { messages: { take: 5, orderBy: { sentAt: "desc" } } } })
       : null,
   ]);
+
+  const agents = conversation?.channel === "whatsmeow"
+    ? allAgents.filter((agent: any) => {
+        let rules = agent.handoffRules;
+        if (typeof rules === "string") {
+          try {
+            rules = JSON.parse(rules);
+          } catch {
+            rules = null;
+          }
+        }
+        const instanceIds = rules?.whatsappInstanceIds || [];
+        return instanceIds.length === 0 || instanceIds.includes(conversation.channelInstanceId);
+      })
+    : allAgents;
 
   if (agents.length === 0) {
     return { agentId: null, agentName: "Nenhum agente disponível", confidence: 0, needsHuman: true, reason: "Sem agentes ativos no tenant" };
@@ -88,9 +103,9 @@ export async function checkHandoff(agentId: string, message: string, conversatio
 
   const rules = typeof agent.handoffRules === "string" ? JSON.parse(agent.handoffRules as string) : agent.handoffRules;
 
-  if (!rules.enabled) return { needsHandoff: false, reason: "Handoff desabilitado" };
+  if (rules.enabled === false) return { needsHandoff: false, reason: "Handoff desabilitado" };
 
-  const keywords = rules.keywords || [];
+  const keywords = rules.keywords || rules.escalationKeywords || [];
   const lowerMessage = message.toLowerCase();
   const keywordMatch = keywords.some((kw: string) => lowerMessage.includes(kw.toLowerCase()));
 

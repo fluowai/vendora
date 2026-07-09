@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { PhoneOff, Phone, Clock } from "lucide-react";
 import type { CallRecord } from "../../types/calls";
+import { preferredCallPeer } from "../../lib/phone";
 
 interface ActiveCallProps {
   call: CallRecord
@@ -28,7 +29,7 @@ function CallTimer({ startedAt }: { startedAt: number }) {
 }
 
 export function ActiveCall({ call, onEndCall }: ActiveCallProps) {
-  const peer = call.peer.replace(/@.+$/, "");
+  const peer = preferredCallPeer(call) || "Telefone nao resolvido";
 
   return (
     <div className="bg-surface border border-border rounded-xl p-4 space-y-3">
@@ -38,7 +39,8 @@ export function ActiveCall({ call, onEndCall }: ActiveCallProps) {
             <Phone className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <p className="font-semibold text-sm">+{peer}</p>
+            <p className="font-semibold text-sm">{call.pushName || peer}</p>
+            {call.pushName && <p className="text-xs text-muted">{peer}</p>}
             <div className="flex items-center gap-1 text-xs text-muted">
               <Clock className="w-3 h-3" />
               <CallTimer startedAt={call.startedAt} />

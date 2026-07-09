@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 30000,
   retries: 1,
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: "http://localhost:3333",
     headless: true,
     screenshot: "only-on-failure",
     trace: "on-first-retry",
@@ -19,7 +19,6 @@ export default defineConfig({
       NODE_ENV: "test",
       JWT_SECRET: "test-e2e-secret-key",
       JWT_REFRESH_SECRET: "test-e2e-refresh-secret",
-      DATABASE_URL: "file:./dev.db",
       PORT: "3333",
     },
   },

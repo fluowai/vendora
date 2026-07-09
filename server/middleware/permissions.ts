@@ -29,7 +29,7 @@ function clearPermissionCache(userId: string) {
 function requirePermission(action: string, subject: string) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (req.user?.isSuperadmin) { next(); return; }
+      if (req.user?.isSuperadmin || req.user?.platformRole === "mega_admin" || req.user?.platformRole === "support") { next(); return; }
       if (!req.user) { res.status(401).json({ error: "Autenticação necessária" }); return; }
 
       const permissions = await getUserPermissions(req.user.userId);
@@ -46,7 +46,7 @@ function requirePermission(action: string, subject: string) {
 }
 
 function scopeFilter(req: Request) {
-  if (req.user?.isSuperadmin) return {};
+  if (req.user?.isSuperadmin || req.user?.platformRole === "mega_admin") return {};
   const scope = req.query.scope as string | undefined;
 
   switch (scope) {

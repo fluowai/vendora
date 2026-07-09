@@ -17,6 +17,9 @@ const ALL_PERMISSIONS = {
     { action: "settings", subject: "write" },
     { action: "team", subject: "read" },
     { action: "team", subject: "manage" },
+    { action: "calls", subject: "make" },
+    { action: "calls", subject: "manage" },
+    { action: "campaigns", subject: "manage" },
     { action: "reports", subject: "read" },
   ],
   supervisor: [
@@ -84,11 +87,121 @@ async function main() {
         passwordHash: await bcrypt.hash("super123", 12),
         tenantId: superadminTenant.id,
         isSuperadmin: true,
+        platformRole: "mega_admin",
+        roleScope: "platform",
       },
     });
     console.log("  Superadmin user: super@vendaora.com / super123");
   } else {
     console.log("  Superadmin user already exists, skipping.");
+    await prisma.user.update({
+      where: { email: "super@vendaora.com" },
+      data: { isSuperadmin: true, platformRole: "mega_admin", roleScope: "platform" },
+    });
+  }
+
+  // ============= DEFAULT WHITELABEL =============
+  const whiteLabel = await prisma.whiteLabel.upsert({
+    where: { slug: "parceiro-demo" },
+    update: {},
+    create: {
+      name: "Parceiro Demo",
+      slug: "parceiro-demo",
+      email: "superadmin@parceiro.com",
+      planId: "enterprise",
+      customDomain: "parceiro.localhost",
+      branding: {
+        companyName: "Parceiro Demo",
+        primaryColor: "#0f766e",
+        secondaryColor: "#111827",
+      },
+      limits: {
+        maxTenants: 50,
+        maxUsers: 500,
+        maxAgents: 500,
+        maxConversations: 100000,
+        maxCallMinutes: 50000,
+      },
+    },
+  });
+
+  const whiteLabelTenant = await prisma.tenant.upsert({
+    where: { slug: "parceiro-demo-operacao" },
+    update: { whiteLabelId: whiteLabel.id },
+    create: {
+      name: "Parceiro Demo Operacao",
+      slug: "parceiro-demo-operacao",
+      email: "superadmin@parceiro.com",
+      planId: "enterprise",
+      whiteLabelId: whiteLabel.id,
+      branding: whiteLabel.branding,
+    },
+  });
+
+  const wlAdminExists = await prisma.user.findUnique({ where: { email: "superadmin@parceiro.com" } });
+  if (!wlAdminExists) {
+    const wlAdmin = await prisma.user.create({
+      data: {
+        name: "Super Admin Parceiro",
+        email: "superadmin@parceiro.com",
+        passwordHash: await bcrypt.hash("parceiro123", 12),
+        tenantId: whiteLabelTenant.id,
+        whiteLabelId: whiteLabel.id,
+        platformRole: "none",
+        roleScope: "whitelabel",
+      },
+    });
+    await prisma.whiteLabel.update({ where: { id: whiteLabel.id }, data: { ownerUserId: wlAdmin.id } });
+    console.log("  WhiteLabel admin: superadmin@parceiro.com / parceiro123");
+  }
+
+  const wlClientTenant = await prisma.tenant.upsert({
+    where: { slug: "cliente-parceiro-demo" },
+    update: { whiteLabelId: whiteLabel.id },
+    create: {
+      name: "Cliente Parceiro Demo",
+      slug: "cliente-parceiro-demo",
+      email: "admin@clienteparceiro.com",
+      planId: "growth",
+      whiteLabelId: whiteLabel.id,
+    },
+  });
+
+  const wlClientExistingRoles = await prisma.role.findMany({ where: { tenantId: wlClientTenant.id } });
+  for (const [roleName, perms] of Object.entries(ALL_PERMISSIONS)) {
+    const existingRole = wlClientExistingRoles.find((role) => role.name === roleName);
+    if (existingRole) {
+      await prisma.permission.deleteMany({ where: { roleId: existingRole.id } });
+      await prisma.permission.createMany({
+        data: perms.map((p) => ({ roleId: existingRole.id, action: p.action, subject: p.subject })),
+      });
+    } else {
+      await prisma.role.create({
+        data: { tenantId: wlClientTenant.id, name: roleName, permissions: { create: perms } },
+      });
+    }
+  }
+
+  let wlClientAdmin = await prisma.user.findUnique({ where: { email: "admin@clienteparceiro.com" } });
+  if (!wlClientAdmin) {
+    wlClientAdmin = await prisma.user.create({
+      data: {
+        name: "Admin Cliente Parceiro",
+        email: "admin@clienteparceiro.com",
+        passwordHash: await bcrypt.hash("cliente123", 12),
+        tenantId: wlClientTenant.id,
+        whiteLabelId: whiteLabel.id,
+        platformRole: "none",
+        roleScope: "tenant",
+      },
+    });
+    console.log("  WhiteLabel client admin: admin@clienteparceiro.com / cliente123");
+  }
+
+  const wlClientAdminRole = await prisma.role.findFirst({ where: { tenantId: wlClientTenant.id, name: "admin" } });
+  if (wlClientAdminRole) {
+    const existing = await prisma.userRole.findFirst({ where: { userId: wlClientAdmin.id, roleId: wlClientAdminRole.id } });
+    if (!existing) await prisma.userRole.create({ data: { userId: wlClientAdmin.id, roleId: wlClientAdminRole.id } });
   }
 
   // ============= DEMO TENANT =============

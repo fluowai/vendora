@@ -1,5 +1,6 @@
 import { Phone, PhoneIncoming, PhoneOutgoing, Clock } from "lucide-react";
 import type { CallRecord } from "../../types/calls";
+import { preferredCallPeer } from "../../lib/phone";
 
 interface CallHistoryProps {
   records: CallRecord[]
@@ -32,10 +33,11 @@ export function CallHistory({ records }: CallHistoryProps) {
             }
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">+{r.peer.replace(/@.+$/, "")}</p>
+            <p className="text-sm font-medium truncate">{preferredCallPeer(r) || "Telefone nao resolvido"}</p>
             <div className="flex items-center gap-2 text-xs text-muted">
               <Clock className="w-3 h-3" />
               <span>{formatDate(r.startedAt)}</span>
+              {r.ownerName && <span>• {r.ownerName}</span>}
             </div>
           </div>
           <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${

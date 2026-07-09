@@ -1,6 +1,7 @@
 import prisma from "./prisma.ts";
 import { getIO } from "./socket.ts";
 import { logger } from "./logger.ts";
+import { preferredCallPeer, normalizePhoneForCall } from "./phone.ts";
 
 let bridge: WaCallsSSEBridge | null = null;
 
@@ -16,6 +17,9 @@ interface ActiveCallInfo {
   callId: string
   direction: string
   peer: string
+  callerPn?: string
+  pushName?: string
+  avatarUrl?: string
   startedAt: number
   owner?: string
 }
@@ -106,6 +110,7 @@ export class WaCallsSSEBridge {
 
       const startedAt = new Date(info.startedAt);
       const endedAt = data.endedAt ? new Date(data.endedAt) : new Date();
+      const peer = preferredCallPeer(info);
 
       await prisma.waCallRecord.upsert({
         where: { callId: data.id },
@@ -115,7 +120,7 @@ export class WaCallsSSEBridge {
           callId: data.id,
           owner: info.owner || null,
           direction: info.direction,
-          peer: info.peer,
+          peer,
           status: "ended",
           startedAt,
           endedAt,
@@ -123,13 +128,151 @@ export class WaCallsSSEBridge {
         },
       });
 
+      await this.handleMissedInboundCall(info, data.reason || "");
       this.activeCalls.delete(data.id);
     } catch (err) {
       logger.error("[WaCalls] Failed to persist call record", { error: err });
     }
   }
 
-  private broadcast(data: any) {
+  private async findContactByPhone(phone: string) {
+    const normalized = normalizePhoneForCall(phone);
+    if (!normalized) return null;
+    const tail = normalized.slice(-8);
+    return prisma.contact.findFirst({
+      where: {
+        OR: [
+          { phone: normalized },
+          { phone: { contains: normalized } },
+          ...(tail ? [{ phone: { contains: tail } }] : []),
+        ],
+      },
+      orderBy: { updatedAt: "desc" },
+    });
+  }
+
+  private async enrichCallIdentity(data: any) {
+    const peer = preferredCallPeer({ peer: data.peer, callerPn: data.callerPn });
+    const contact = await this.findContactByPhone(peer);
+
+    return {
+      peer,
+      callerPn: normalizePhoneForCall(data.callerPn),
+      pushName: data.pushName || contact?.name || null,
+      avatarUrl: data.avatarUrl || null,
+    };
+  }
+
+  private async getOrCreateMissedCallConversation(info: ActiveCallInfo) {
+    const phone = preferredCallPeer(info);
+    if (!phone) return null;
+
+    let contact = await this.findContactByPhone(phone);
+    let tenantId = contact?.tenantId;
+
+    if (!tenantId) {
+      const tenant = await prisma.tenant.findFirst({ select: { id: true } });
+      tenantId = tenant?.id;
+    }
+    if (!tenantId) return null;
+
+    if (!contact) {
+      contact = await prisma.contact.create({
+        data: {
+          tenantId,
+          name: info.pushName || phone,
+          phone,
+          source: "wacalls",
+        },
+      });
+    }
+
+    const channel = await prisma.channel.upsert({
+      where: { id: `${tenantId}-wacalls` },
+      update: { status: "active" },
+      create: {
+        id: `${tenantId}-wacalls`,
+        tenantId,
+        name: "WaCalls",
+        provider: "wacalls",
+        status: "active",
+      },
+    });
+
+    const channelInstance = await prisma.channelInstance.findFirst({
+      where: { channelId: channel.id, status: "active" },
+    }) || await prisma.channelInstance.create({
+      data: { channelId: channel.id, name: "WaCalls principal", status: "active" },
+    });
+
+    const existing = await prisma.conversation.findFirst({
+      where: { tenantId, contactId: contact.id, channel: "wacalls", status: { not: "closed" } },
+      orderBy: { updatedAt: "desc" },
+    });
+    if (existing) return existing;
+
+    return prisma.conversation.create({
+      data: {
+        tenantId,
+        contactId: contact.id,
+        channelInstanceId: channelInstance.id,
+        channel: "wacalls",
+        status: "active",
+        aiEnabled: true,
+        priority: "high",
+      },
+    });
+  }
+
+  private async handleMissedInboundCall(info: ActiveCallInfo, reason: string) {
+    if (info.direction !== "inbound" || info.owner) return;
+    const missedReasons = new Set(["timeout", "no_answer", "busy", ""]);
+    if (!missedReasons.has(reason)) return;
+
+    const conversation = await this.getOrCreateMissedCallConversation(info);
+    if (!conversation) return;
+
+    const now = new Date();
+    const phone = preferredCallPeer(info);
+    const aiAgent = await prisma.aiAgent.findFirst({
+      where: { tenantId: conversation.tenantId, enabled: true, status: "active" },
+      orderBy: { updatedAt: "desc" },
+    });
+    const content = aiAgent
+      ? `Oi, aqui e o ${aiAgent.name}. Vi que sua chamada nao foi atendida agora. Pode me dizer como posso ajudar?`
+      : "Oi, vimos que sua chamada nao foi atendida agora. Pode enviar sua mensagem por aqui que ja vamos continuar o atendimento.";
+
+    const message = await prisma.message.create({
+      data: {
+        tenantId: conversation.tenantId,
+        conversationId: conversation.id,
+        contactId: conversation.contactId,
+        senderType: aiAgent ? "ai" : "system",
+        senderId: aiAgent?.id || "wacalls-missed-call",
+        channel: conversation.channel,
+        messageType: "text",
+        content,
+        metadata: { source: "wacalls_missed_call", callId: info.callId, phone, reason, aiAgentId: aiAgent?.id || null },
+        sentAt: now,
+      },
+    });
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: now, aiEnabled: true, priority: "high" },
+    });
+
+    getIO().to(`tenant:${conversation.tenantId}`).emit("conversation:updated", {
+      id: conversation.id,
+      lastMessage: message.content,
+      lastMessageAt: message.sentAt,
+      time: message.sentAt,
+      aiEnabled: true,
+      priority: "high",
+    });
+  }
+
+  private async broadcast(data: any) {
     try {
       const io = getIO();
       const eventType = data.type;
@@ -144,22 +287,28 @@ export class WaCallsSSEBridge {
         case "auth-state":
           io.emit("wacalls:auth", { sessionId: data.sessionId, state: data.state, paired: data.paired, qr: data.qr });
           break;
-        case "incoming":
-          io.emit("wacalls:incoming", { sessionId: data.sessionId, callId: data.id, peer: data.peer, offeredAt: data.offeredAt });
+        case "incoming": {
+          const identity = await this.enrichCallIdentity(data);
+          io.emit("wacalls:incoming", { sessionId: data.sessionId, callId: data.id, ...identity, offeredAt: data.offeredAt });
           break;
+        }
         case "incoming-claimed":
           io.emit("wacalls:incoming-claimed", { sessionId: data.sessionId, callId: data.id, owner: data.owner });
           break;
         case "call-status": {
+          const identity = await this.enrichCallIdentity(data);
           this.activeCalls.set(data.id, {
             sessionId: data.sessionId,
             callId: data.id,
             direction: data.direction || "outbound",
-            peer: data.peer || "",
+            peer: identity.peer || data.peer || "",
+            callerPn: identity.callerPn || data.callerPn,
+            pushName: identity.pushName || data.pushName,
+            avatarUrl: identity.avatarUrl || data.avatarUrl,
             startedAt: data.startedAt || Date.now(),
             owner: data.owner,
           });
-          io.emit("wacalls:status", { sessionId: data.sessionId, callId: data.id, status: data.status, peer: data.peer, owner: data.owner });
+          io.emit("wacalls:status", { sessionId: data.sessionId, callId: data.id, status: data.status, ...identity, owner: data.owner });
           break;
         }
         case "call-ended":

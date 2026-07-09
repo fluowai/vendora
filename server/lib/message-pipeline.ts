@@ -2,6 +2,8 @@ import prisma from "./prisma.ts";
 import { executeAgent, getAgent } from "./agent-engine.ts";
 import { applySchedulingTool } from "./calendar.ts";
 import { checkHandoff, routeMessage } from "./intent-router.ts";
+import { orchestrateWithAgents } from "./orchestrator.ts";
+import { executeFlow, findActiveMessageFlow, findWaitingRun } from "./flow-engine.ts";
 import { emitToConversation, emitToTenant } from "./socket.ts";
 
 function getWhatsmeowBridgeUrl() {
@@ -17,6 +19,10 @@ function mapMessage(message: any) {
     channel: message.channel,
     messageType: message.messageType,
     content: message.content,
+    mediaUrl: message.mediaUrl,
+    mediaMimeType: message.mediaMimeType,
+    mediaName: message.mediaName,
+    mediaSize: message.mediaSize,
     metadata: message.metadata,
     sentAt: message.sentAt,
     deliveredAt: message.deliveredAt,
@@ -81,7 +87,12 @@ async function sendTypingIndicator(remoteJid: string, state: string) {
   }
 }
 
-async function sendViaChannel(conversation: any, content: string) {
+export async function sendViaChannel(conversation: any, content: string, media?: {
+  mediaUrl?: string
+  mediaType?: string
+  mediaMimeType?: string
+  mediaName?: string
+}) {
   if (conversation.channel !== "whatsmeow") {
     return { skipped: true, reason: "Canal sem envio externo configurado" };
   }
@@ -96,14 +107,24 @@ async function sendViaChannel(conversation: any, content: string) {
     return { skipped: true, reason: "Destino WhatsApp nao encontrado" };
   }
 
-  const response = await fetch(`${bridgeUrl}/send`, {
+  const hasMedia = !!media?.mediaUrl;
+  const response = await fetch(`${bridgeUrl}${hasMedia ? "/send/media" : "/send"}`, {
     method: "POST",
     headers: getBridgeHeaders(),
-    body: JSON.stringify({
-      to: remoteJid,
-      text: content,
-      conversationId: conversation.id,
-    }),
+    body: JSON.stringify(hasMedia
+      ? {
+          to: remoteJid,
+          caption: content,
+          mediaUrl: media.mediaUrl,
+          mediaType: media.mediaType || media.mediaMimeType?.split("/")[0] || "document",
+          fileName: media.mediaName,
+          conversationId: conversation.id,
+        }
+      : {
+          to: remoteJid,
+          text: content,
+          conversationId: conversation.id,
+        }),
   });
 
   const data = await response.json().catch(() => ({}));
@@ -145,6 +166,48 @@ export async function processIncomingMessage(input: {
     void sendTypingIndicator(remoteJid, "typing");
   }
 
+  const waitingFlowRun = await findWaitingRun(input.tenantId, conversation.id);
+  const activeFlow = waitingFlowRun
+    ? null
+    : await findActiveMessageFlow(input.tenantId, conversation.channel);
+  if (waitingFlowRun || activeFlow) {
+    try {
+      const flowResult = await executeFlow({
+        tenantId: input.tenantId,
+        runId: waitingFlowRun?.id,
+        flowId: activeFlow?.id,
+        conversationId: conversation.id,
+        contactId: conversation.contactId,
+        input: incoming.content,
+      });
+
+      const deliveries = [];
+      for (const output of flowResult.outputs || []) {
+        if (output.content) {
+          deliveries.push(await sendViaChannel(conversation, output.content).catch((error: any) => ({
+            error: error.message || "Falha ao enviar resposta do fluxo",
+          })));
+        }
+      }
+      if (remoteJid && conversation.channel === "whatsmeow") {
+        void sendTypingIndicator(remoteJid, "paused");
+      }
+      return {
+        processed: true,
+        flow: true,
+        conversationId: conversation.id,
+        runId: flowResult.runId,
+        status: flowResult.status,
+        deliveries,
+      };
+    } catch (error: any) {
+      emitToConversation(conversation.id, "flow:error", {
+        conversationId: conversation.id,
+        error: error.message || "Erro ao executar fluxo",
+      });
+    }
+  }
+
   const route = await routeMessage(input.tenantId, incoming.content, conversation.id);
   if (route.needsHuman || !route.agentId) {
     await prisma.conversation.update({
@@ -182,8 +245,20 @@ export async function processIncomingMessage(input: {
     const messageForAgent = scheduling?.context
       ? `${incoming.content}\n\n${scheduling.context}`
       : incoming.content;
-    const result = await executeAgent(agent, messageForAgent, history as any);
-    responseText = result.response.trim();
+    const rules = agent.handoffRules || {};
+    const supportAgentIds = Array.isArray(rules.supportAgentIds) ? rules.supportAgentIds : [];
+    const runtimeContext = {
+      tenantId: input.tenantId,
+      contactId: conversation.contactId,
+      conversationId: conversation.id,
+    };
+    if (supportAgentIds.length > 0) {
+      const result = await orchestrateWithAgents(agent.id, messageForAgent, supportAgentIds, history as any, runtimeContext);
+      responseText = result.finalResponse.trim();
+    } else {
+      const result = await executeAgent(agent, messageForAgent, history as any, runtimeContext);
+      responseText = result.response.trim();
+    }
   } catch (error: any) {
     llmError = error.message || "Erro ao executar IA";
     responseText = fallbackAgentResponse({

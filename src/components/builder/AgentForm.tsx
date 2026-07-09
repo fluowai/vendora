@@ -1,5 +1,5 @@
-import { useState, useRef } from "react"
-import { X, Bot, Save, Sparkles, Camera } from "lucide-react"
+import { useEffect, useState, useRef } from "react"
+import { X, Bot, Save, Sparkles, Camera, Smartphone, Users, ShieldCheck, Plus, Trash2 } from "lucide-react"
 import { cn } from "@/src/lib/utils"
 import { api } from "@/src/lib/api"
 
@@ -33,6 +33,15 @@ const channels = [
   { id: 'discord', label: 'Discord' },
 ]
 
+const agentTools = [
+  { id: 'update_contact', label: 'Atualizar contato' },
+  { id: 'create_ticket', label: 'Criar ticket' },
+  { id: 'create_deal', label: 'Criar negocio' },
+  { id: 'create_appointment', label: 'Criar agendamento' },
+  { id: 'list_available_slots', label: 'Listar horarios' },
+  { id: 'search_knowledge', label: 'Buscar conhecimento' },
+]
+
 const promptTemplates: Record<string, string> = {
   vendas: 'Você é um vendedor especialista. Seu objetivo é qualificar leads, identificar dores e agendar reuniões. Seja persuasivo mas ético.',
   suporte: 'Você é um agente de suporte técnico. Resolva problemas de forma paciente e clara. Escale para humano quando necessário.',
@@ -51,11 +60,14 @@ export function AgentForm({
   onClose,
   onSave,
   initial,
+  agents = [],
 }: {
   onClose: () => void
   onSave: (data: any) => void
   initial?: any
+  agents?: any[]
 }) {
+  const existingRules = initial?.handoffRules || {}
   const [form, setForm] = useState({
     name: initial?.name || '',
     description: initial?.description || '',
@@ -67,9 +79,28 @@ export function AgentForm({
     channels: initial?.channels || ['web'],
     status: initial?.status || 'draft',
     avatarUrl: initial?.avatar || '',
+    autonomyMode: existingRules.autonomyMode || 'supervised',
+    businessGoal: existingRules.businessGoal || '',
+    fallbackInstructions: existingRules.fallbackInstructions || 'Transferir para humano quando o cliente pedir, quando houver risco financeiro/juridico/saude ou quando faltar informacao para responder com seguranca.',
+    whatsappInstanceIds: existingRules.whatsappInstanceIds || [],
+    supportAgentIds: existingRules.supportAgentIds || [],
+    allowedTools: existingRules.allowedTools || [],
+    escalationKeywords: existingRules.escalationKeywords || 'humano, atendente, cancelar, reembolso, urgente, reclamacao',
   })
   const [uploading, setUploading] = useState(false)
+  const [connections, setConnections] = useState<any[]>([])
+  const [connectionsLoading, setConnectionsLoading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setConnectionsLoading(true)
+    api.getConnections()
+      .then((data) => {
+        setConnections(data.connections.filter((item) => item.channel?.provider === "whatsmeow" || item.channel?.provider === "whatsapp_cloud"))
+      })
+      .catch(() => setConnections([]))
+      .finally(() => setConnectionsLoading(false))
+  }, [])
 
   async function handleAvatarUpload(file: File) {
     if (!file) return
@@ -105,9 +136,43 @@ export function AgentForm({
     }))
   }
 
+  const toggleWhatsAppInstance = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      whatsappInstanceIds: f.whatsappInstanceIds.includes(id)
+        ? f.whatsappInstanceIds.filter((item: string) => item !== id)
+        : [...f.whatsappInstanceIds, id],
+      channels: f.channels.includes('whatsapp') ? f.channels : [...f.channels, 'whatsapp'],
+    }))
+  }
+
+  const toggleSupportAgent = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      supportAgentIds: f.supportAgentIds.includes(id)
+        ? f.supportAgentIds.filter((item: string) => item !== id)
+        : [...f.supportAgentIds, id],
+    }))
+  }
+
+  const toggleAllowedTool = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      allowedTools: f.allowedTools.includes(id)
+        ? f.allowedTools.filter((item: string) => item !== id)
+        : [...f.allowedTools, id],
+    }))
+  }
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    const { avatarUrl, ...rest } = form
+    const { avatarUrl, autonomyMode, businessGoal, fallbackInstructions, whatsappInstanceIds, supportAgentIds, allowedTools, escalationKeywords, ...rest } = form
+    const escalationList = Array.isArray(escalationKeywords)
+      ? escalationKeywords
+      : escalationKeywords
+        .split(',')
+        .map((item: string) => item.trim())
+        .filter(Boolean)
     onSave({
       ...rest,
       avatar: avatarUrl || undefined,
@@ -117,8 +182,20 @@ export function AgentForm({
         systemPrompt: rest.systemPrompt,
         temperature: rest.temperature,
       },
+      handoffRules: {
+        ...(initial?.handoffRules || {}),
+        autonomyMode,
+        businessGoal,
+        fallbackInstructions,
+        whatsappInstanceIds,
+        supportAgentIds,
+        allowedTools,
+        escalationKeywords: escalationList,
+      },
     })
   }
+
+  const availableSupportAgents = agents.filter((agent) => agent.id !== initial?.id)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -257,6 +334,46 @@ export function AgentForm({
             </div>
           </div>
 
+          {/* Autonomy */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider block mb-1.5">Objetivo operacional</label>
+              <textarea
+                value={form.businessGoal}
+                onChange={(e) => setForm((f) => ({ ...f, businessGoal: e.target.value }))}
+                placeholder="Ex: qualificar leads, responder duvidas, coletar dados e agendar uma reuniao."
+                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary/50 transition-all resize-none h-28"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider block mb-2">Modo de autonomia</label>
+              <div className="grid grid-cols-1 gap-2">
+                {[
+                  { id: 'supervised', label: 'Supervisionado', desc: 'Responde sozinho, mas sinaliza casos sensiveis.' },
+                  { id: 'autonomous', label: 'Autonomo', desc: 'Atende clientes sem depender do humano.' },
+                  { id: 'handoff_first', label: 'Triagem', desc: 'Coleta dados e transfere quando detectar oportunidade.' },
+                ].map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, autonomyMode: mode.id }))}
+                    className={cn(
+                      "p-3 rounded-xl border text-left transition-all",
+                      form.autonomyMode === mode.id
+                        ? "bg-primary/10 border-primary/30 text-primary"
+                        : "bg-bg border-border text-muted hover:border-primary/30"
+                    )}
+                  >
+                    <span className="flex items-center gap-2 text-xs font-bold">
+                      <ShieldCheck className="w-4 h-4" /> {mode.label}
+                    </span>
+                    <span className="block text-[10px] mt-1 leading-relaxed">{mode.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Temperature */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -297,6 +414,124 @@ export function AgentForm({
                   {ch.label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* WhatsApp bindings */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Numeros de WhatsApp vinculados</label>
+              <span className="text-[10px] text-muted">{connectionsLoading ? 'Carregando...' : `${connections.length} disponiveis`}</span>
+            </div>
+            {connections.length === 0 ? (
+              <div className="p-4 bg-bg border border-border rounded-xl text-xs text-muted flex items-center gap-3">
+                <Smartphone className="w-4 h-4 text-primary" />
+                Nenhuma conexao WhatsApp encontrada. Cadastre uma instancia em Conexoes para vincular aqui.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {connections.map((connection) => (
+                  <button
+                    key={connection.id}
+                    type="button"
+                    onClick={() => toggleWhatsAppInstance(connection.id)}
+                    className={cn(
+                      "p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-3",
+                      form.whatsappInstanceIds.includes(connection.id)
+                        ? "bg-primary/10 border-primary/30 text-primary"
+                        : "bg-bg border-border text-muted hover:border-primary/30"
+                    )}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-xs font-bold truncate">{connection.name}</span>
+                      <span className="block text-[10px] truncate">{connection.channel?.provider || 'whatsapp'}</span>
+                    </span>
+                    <Smartphone className="w-4 h-4 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Multi-agent */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Equipe multiagente</label>
+              <span className="text-[10px] text-muted">{form.supportAgentIds.length} apoio(s)</span>
+            </div>
+            {availableSupportAgents.length === 0 ? (
+              <div className="p-4 bg-bg border border-border rounded-xl text-xs text-muted flex items-center gap-3">
+                <Users className="w-4 h-4 text-primary" />
+                Crie outros agentes para usar como especialistas de apoio.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {availableSupportAgents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    onClick={() => toggleSupportAgent(agent.id)}
+                    className={cn(
+                      "p-3 rounded-xl border text-left transition-all flex items-center justify-between gap-3",
+                      form.supportAgentIds.includes(agent.id)
+                        ? "bg-primary/10 border-primary/30 text-primary"
+                        : "bg-bg border-border text-muted hover:border-primary/30"
+                    )}
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-xs font-bold truncate">{agent.name}</span>
+                      <span className="block text-[10px] truncate">{agent.segment} | {agent.status}</span>
+                    </span>
+                    {form.supportAgentIds.includes(agent.id) ? <Trash2 className="w-4 h-4 shrink-0" /> : <Plus className="w-4 h-4 shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider">Ferramentas autonomas permitidas</label>
+              <span className="text-[10px] text-muted">{form.allowedTools.length} ativa(s)</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {agentTools.map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => toggleAllowedTool(tool.id)}
+                  className={cn(
+                    "p-3 rounded-xl border text-left transition-all text-xs font-bold",
+                    form.allowedTools.includes(tool.id)
+                      ? "bg-primary/10 border-primary/30 text-primary"
+                      : "bg-bg border-border text-muted hover:border-primary/30"
+                  )}
+                >
+                  {tool.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Handoff rules */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider block mb-1.5">Palavras de transferencia</label>
+              <input
+                type="text"
+                value={Array.isArray(form.escalationKeywords) ? form.escalationKeywords.join(', ') : form.escalationKeywords}
+                onChange={(e) => setForm((f) => ({ ...f, escalationKeywords: e.target.value }))}
+                placeholder="humano, urgente, cancelar"
+                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary/50 transition-all"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-muted uppercase tracking-wider block mb-1.5">Regra de fallback</label>
+              <textarea
+                value={form.fallbackInstructions}
+                onChange={(e) => setForm((f) => ({ ...f, fallbackInstructions: e.target.value }))}
+                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary/50 transition-all resize-none h-20"
+              />
             </div>
           </div>
 

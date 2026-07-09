@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Phone, Loader2 } from "lucide-react";
+import { normalizePhoneForCall } from "../../lib/phone";
 
 interface CallDialerProps {
   onStartCall: (phone: string) => Promise<void>
@@ -12,7 +13,7 @@ export function CallDialer({ onStartCall, calling }: CallDialerProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phone.trim() || calling) return;
-    await onStartCall(phone.trim());
+    await onStartCall(normalizePhoneForCall(phone));
     setPhone("");
   };
 
@@ -22,7 +23,7 @@ export function CallDialer({ onStartCall, calling }: CallDialerProps) {
         type="tel"
         value={phone}
         onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
-        placeholder="5521999999999"
+        placeholder="5548988003260"
         className="flex-1 px-4 py-2.5 rounded-xl border border-border bg-bg text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
         disabled={calling}
       />

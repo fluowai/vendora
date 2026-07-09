@@ -3,7 +3,7 @@ import {
   Users, MessageSquare, TrendingUp, Clock, ArrowUpRight, ChevronRight, Bot, Loader2
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from "recharts";
 import { cn } from "@/src/lib/utils";
 import { api } from "@/src/lib/api";
@@ -60,8 +60,8 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         <div className="lg:col-span-2 bg-surface rounded-[2rem] lg:rounded-3xl border border-border p-5 lg:p-8 card-shadow">
           <h2 className="text-lg lg:text-xl font-display font-bold mb-6">Volume Semanal</h2>
-          <div className="h-[250px] lg:h-[300px] -ml-4">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[250px] lg:h-[300px] -ml-4 min-w-0 min-h-[250px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <AreaChart data={daily.length > 0 ? daily : [{ name: "Sem dados", conversas: 0, vendas: 0 }]}>
                 <defs>
                   <linearGradient id="colorPrimary" x1="0" y1="0" x2="0" y2="1">

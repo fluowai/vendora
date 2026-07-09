@@ -54,7 +54,13 @@ export default function AuthPage() {
 
       localStorage.setItem("vendaora_token", data.token)
       localStorage.setItem("vendaora_user", JSON.stringify(data.user))
-      navigate("/app/dashboard")
+      if (data.user?.platformRole === "mega_admin" || data.user?.isSuperadmin) {
+        navigate("/mega-admin")
+      } else if (data.user?.roleScope === "whitelabel") {
+        navigate("/whitelabel")
+      } else {
+        navigate("/app/dashboard")
+      }
     } catch (err: any) {
       setError(err.message)
     } finally {

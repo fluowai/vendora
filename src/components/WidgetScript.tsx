@@ -11,7 +11,7 @@ interface WidgetConfig {
 }
 
 // This component renders the embeddable chat widget
-// To embed: <script src="https://yourdomain.com/widget.js" data-agent-id="agent-id" data-color="#25D366"></script>
+// To embed: <script src="https://yourdomain.com/api/public/widget.js" data-agent-id="agent-id" data-color="#25D366"></script>
 export function WidgetPreview({ config }: { config: WidgetConfig }) {
   const [open, setOpen] = useState(false)
   const [message, setMessage] = useState('')
@@ -113,13 +113,6 @@ export function WidgetPreview({ config }: { config: WidgetConfig }) {
 // Generator for embed code
 export function generateEmbedCode(agentId: string, color = '#25D366'): string {
   return `<!-- Vendaora 360 - AI Agent Widget -->
-<script>
-(function(w,d,s,o,f,js,fjs){
-  w['VendaoraWidget']=o;w[o]=w[o]||function(){(w[o].q=w[o].q||[]).push(arguments)};
-  js=d.createElement(s);fjs=d.getElementsByTagName(s)[0];
-  js.src=f;js.async=1;fjs.parentNode.insertBefore(js,fjs);
-}(window,document,'script','vendaora','https://yourdomain.com/widget.js'));
-vendaora('init', { agentId: '${agentId}', color: '${color}' });
-</script>
+<script src="${window.location.origin}/api/public/widget.js" data-agent-id="${agentId}" data-color="${color}" async></script>
 <!-- End Vendaora 360 Widget -->`
 }

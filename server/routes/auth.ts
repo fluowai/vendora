@@ -39,6 +39,8 @@ router.post("/register", validate(schemas.register), async (req: Request, res: R
           tenant_id: tenant.id,
           name: name || email.split("@")[0],
           is_superadmin: false,
+          platform_role: "none",
+          role_scope: "tenant",
         },
       });
 
@@ -60,6 +62,8 @@ router.post("/register", validate(schemas.register), async (req: Request, res: R
         email,
         passwordHash,
         tenantId: tenant.id,
+        platformRole: "none",
+        roleScope: "tenant",
       },
     });
 
@@ -108,12 +112,12 @@ router.post("/register", validate(schemas.register), async (req: Request, res: R
       data: { userId: user.id, roleId: adminRole.id },
     });
 
-    const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: false };
+    const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: false, whiteLabelId: null, platformRole: "none", roleScope: "tenant" };
     const token = generateToken(tokenPayload);
     const refreshResult = await generateRefreshToken(tokenPayload);
 
     res.status(201).json({
-      user: { id: user.id, name: user.name, email: user.email, company: tenant.name, plan: tenant.planId, isSuperadmin: false },
+      user: { id: user.id, name: user.name, email: user.email, company: tenant.name, plan: tenant.planId, isSuperadmin: false, tenantId: tenant.id, whiteLabelId: null, platformRole: "none", roleScope: "tenant" },
       token,
       refreshToken: refreshResult.token,
     });
@@ -140,11 +144,11 @@ router.post("/login", validate(schemas.login), async (req: Request, res: Respons
         });
         if (user) {
           await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-          const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: user.isSuperadmin };
+          const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: user.isSuperadmin, whiteLabelId: user.whiteLabelId, platformRole: user.platformRole, roleScope: user.roleScope };
           const token = generateToken(tokenPayload);
           const refreshResult = await generateRefreshToken(tokenPayload);
           res.json({
-            user: { id: user.id, name: user.name, email: user.email, company: user.tenant.name, plan: user.tenant.planId, isSuperadmin: user.isSuperadmin, tenantId: user.tenantId },
+            user: { id: user.id, name: user.name, email: user.email, company: user.tenant.name, plan: user.tenant.planId, isSuperadmin: user.isSuperadmin || user.platformRole === "mega_admin", tenantId: user.tenantId, whiteLabelId: user.whiteLabelId, platformRole: user.platformRole, roleScope: user.roleScope },
             token,
             refreshToken: refreshResult.token,
             sbSession: sbData.session,
@@ -166,7 +170,7 @@ router.post("/login", validate(schemas.login), async (req: Request, res: Respons
 
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-    const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: user.isSuperadmin };
+    const tokenPayload = { userId: user.id, email: user.email, tenantId: user.tenantId, isSuperadmin: user.isSuperadmin, whiteLabelId: user.whiteLabelId, platformRole: user.platformRole, roleScope: user.roleScope };
     const token = generateToken(tokenPayload);
     const refreshResult = await generateRefreshToken(tokenPayload);
 
@@ -174,8 +178,11 @@ router.post("/login", validate(schemas.login), async (req: Request, res: Respons
       user: {
         id: user.id, name: user.name, email: user.email,
         company: user.tenant.name, plan: user.tenant.planId,
-        isSuperadmin: user.isSuperadmin,
+        isSuperadmin: user.isSuperadmin || user.platformRole === "mega_admin",
         tenantId: user.tenantId,
+        whiteLabelId: user.whiteLabelId,
+        platformRole: user.platformRole,
+        roleScope: user.roleScope,
       },
       token,
       refreshToken: refreshResult.token,
@@ -232,12 +239,36 @@ router.get("/me", authMiddleware, async (req: Request, res: Response) => {
       ur.role.permissions.map((p) => `${p.action}:${p.subject}`)
     );
 
+    if (req.user!.supportMode && req.user!.supportTenantId) {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.user!.supportTenantId } });
+      if (!tenant) { res.status(404).json({ error: "Tenant de suporte nao encontrado" }); return; }
+      res.json({
+        user: {
+          id: user.id, name: "Suporte Mega Admin", email: user.email,
+          company: tenant.name, plan: tenant.planId,
+          isSuperadmin: false,
+          tenantId: tenant.id,
+          whiteLabelId: tenant.whiteLabelId,
+          platformRole: "support",
+          roleScope: "tenant",
+          supportMode: true,
+          supportTenantId: tenant.id,
+          supportTenantName: tenant.name,
+          permissions,
+        },
+      });
+      return;
+    }
+
     res.json({
       user: {
         id: user.id, name: user.name, email: user.email,
         company: user.tenant.name, plan: user.tenant.planId,
-        isSuperadmin: user.isSuperadmin,
+        isSuperadmin: user.isSuperadmin || user.platformRole === "mega_admin",
         tenantId: user.tenantId,
+        whiteLabelId: user.whiteLabelId,
+        platformRole: user.platformRole,
+        roleScope: user.roleScope,
         permissions,
       },
     });

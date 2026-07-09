@@ -70,6 +70,31 @@ export const api = {
   executeWorkflow: (id: string, input: string, context?: any) =>
     request<{ finalResponse: string; steps: any[] }>(`/agents/workflows/${id}/execute`, { method: 'POST', body: JSON.stringify({ input, context }) }),
 
+  // Visual Flows
+  getFlows: () => request<{ flows: any[] }>('/flows'),
+  getFlow: (id: string) => request<{ flow: any }>(`/flows/${id}`),
+  getFlowRuns: (id: string) => request<{ runs: any[] }>(`/flows/${id}/runs`),
+  getFlowAnalytics: (id: string) => request<{ analytics: any }>(`/flows/${id}/analytics`),
+  createFlow: (data: any) => request<{ flow: any }>('/flows', { method: 'POST', body: JSON.stringify(data) }),
+  updateFlow: (id: string, data: any) => request<{ flow: any }>(`/flows/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  createFlowVersion: (id: string, graph: any) =>
+    request<{ version: any }>(`/flows/${id}/versions`, { method: 'POST', body: JSON.stringify({ graph }) }),
+  publishFlowVersion: (id: string, versionId: string) =>
+    request<{ flow: any }>(`/flows/${id}/versions/${versionId}/publish`, { method: 'POST' }),
+  executeFlow: (id: string, data?: { input?: string; conversationId?: string; contactId?: string }) =>
+    request<{ runId: string; status: string; outputs: any[]; variables: any }>(`/flows/${id}/execute`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  continueFlowRun: (runId: string, input: string) =>
+    request<{ runId: string; status: string; outputs: any[]; variables: any }>(`/flows/runs/${runId}/continue`, {
+      method: 'POST',
+      body: JSON.stringify({ input }),
+    }),
+  getTools: () => request<{ tools: any[] }>('/tools'),
+  executeTool: (name: string, data: any) =>
+    request<any>(`/tools/${name}/execute`, { method: 'POST', body: JSON.stringify(data) }),
+
   // Conversations
   getConversations: (params?: { status?: string; search?: string; channel?: string; scope?: string; chatType?: string }) => {
     const qs = new URLSearchParams()
@@ -84,10 +109,14 @@ export const api = {
   getConversation: (id: string) => request<{ conversation: any }>(`/conversations/${id}`),
   createConversation: (data: any) => request<{ conversation: any }>('/conversations', { method: 'POST', body: JSON.stringify(data) }),
   updateConversation: (id: string, data: any) => request<{ conversation: any }>(`/conversations/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  sendConversationMessage: (id: string, content: string, metadata?: any) =>
+  sendConversationMessage: (id: string, content: string, metadata?: any, media?: any) =>
     request<{ message: any }>(`/conversations/${id}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, metadata }),
+      body: JSON.stringify({ content, metadata, ...(media || {}) }),
+    }),
+  deleteConversationMessage: (conversationId: string, messageId: string) =>
+    request<{ success: boolean; lastMessage: any | null }>(`/conversations/${conversationId}/messages/${messageId}`, {
+      method: 'DELETE',
     }),
   assignConversation: (id: string, userId: string) =>
     request<{ conversation: any }>(`/conversations/${id}`, {
@@ -131,6 +160,34 @@ export const api = {
   getWhatsmeowInstanceStatus: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/status`),
   getWhatsmeowInstanceQr: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/qr`),
   logoutWhatsmeowInstance: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/logout`, { method: 'POST' }),
+
+  // WAHA+ API
+  getWahaplusStatus: () => request<any>('/integrations/wahaplus/status'),
+  getWahaplusSessions: () => request<any>('/integrations/wahaplus/sessions'),
+  createWahaplusSession: (name: string) => request<any>('/integrations/wahaplus/sessions', { method: 'POST', body: JSON.stringify({ name }) }),
+  deleteWahaplusSession: (sid: string) => request<any>(`/integrations/wahaplus/sessions/${sid}`, { method: 'DELETE' }),
+  getWahaplusSessionQr: (sid: string) => request<any>(`/integrations/wahaplus/sessions/${sid}/qr`),
+  sendWahaplusMessage: (session: string, to: string, text: string) =>
+    request<any>('/integrations/wahaplus/send', { method: 'POST', body: JSON.stringify({ session, to, text }) }),
+
+  // WAHA+ Call API
+  getWahaplusActiveCalls: (sid: string) =>
+    request<any>(`/integrations/wahaplus/sessions/${sid}/calls`),
+  startWahaplusCall: (sid: string, phone: string) =>
+    request<any>(`/integrations/wahaplus/sessions/${sid}/calls`, { method: 'POST', body: JSON.stringify({ phone }) }),
+  sendWahaplusWebRTC: (sid: string, callId: string, sdp_offer: string) =>
+    request<any>(`/integrations/wahaplus/sessions/${sid}/calls/${callId}/webrtc`, { method: 'POST', body: JSON.stringify({ sdp_offer }) }),
+  acceptWahaplusCall: (sid: string, callId: string) =>
+    request<any>(`/integrations/wahaplus/sessions/${sid}/calls/${callId}/accept`, { method: 'POST' }),
+  rejectWahaplusCall: (sid: string, callId: string) =>
+    request<any>(`/integrations/wahaplus/sessions/${sid}/calls/${callId}/reject`, { method: 'POST' }),
+  endWahaplusCall: (sid: string, callId: string) =>
+    request<any>(`/integrations/wahaplus/sessions/${sid}/calls/${callId}`, { method: 'DELETE' }),
+  getWahaplusCallHistory: (sid: string) =>
+    request<any>(`/integrations/wahaplus/sessions/${sid}/history`),
+
+  // Calls gateway status
+  getCallsBridgeStatus: () => request<any>('/calls/bridge/status'),
 
   // Analytics
   getAnalyticsOverview: () => request<{ overview: any }>('/analytics/overview'),
@@ -196,4 +253,59 @@ export const api = {
   // Upload
   uploadAvatar: (base64: string, mimeType: string) =>
     request<{ url: string }>('/upload/avatar', { method: 'POST', body: JSON.stringify({ base64, mimeType }) }),
+  uploadMedia: (base64: string, mimeType: string, fileName?: string) =>
+    request<{ url: string; key: string; mimeType: string; fileName: string; size: number }>('/upload/media', {
+      method: 'POST',
+      body: JSON.stringify({ base64, mimeType, fileName }),
+    }),
+
+  // Mega Admin
+  getMegaStats: () => request<{ stats: any }>('/superadmin/stats'),
+  getMegaWhiteLabels: (params?: { search?: string; status?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.search) qs.set('search', params.search)
+    if (params?.status) qs.set('status', params.status)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return request<{ whiteLabels: any[]; pagination: any }>(`/superadmin/whitelabels${suffix}`)
+  },
+  createMegaWhiteLabel: (data: any) => request<{ whiteLabel: any }>('/superadmin/whitelabels', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  getMegaTenants: (params?: { whiteLabelId?: string; search?: string; status?: string; planId?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.whiteLabelId) qs.set('whiteLabelId', params.whiteLabelId)
+    if (params?.search) qs.set('search', params.search)
+    if (params?.status) qs.set('status', params.status)
+    if (params?.planId) qs.set('planId', params.planId)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return request<{ tenants: any[]; pagination: any }>(`/superadmin/tenants${suffix}`)
+  },
+  createMegaTenant: (data: any) => request<{ tenant: any }>('/superadmin/tenants', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  startTenantSupportSession: (tenantId: string) => request<{ token: string; user: any }>(`/superadmin/tenants/${tenantId}/support-session`, {
+    method: 'POST',
+  }),
+
+  // White Label Super Admin
+  getWhiteLabelStats: () => request<{ stats: any }>('/whitelabel/stats'),
+  getWhiteLabelProfile: () => request<{ whiteLabel: any }>('/whitelabel/profile'),
+  updateWhiteLabelProfile: (data: any) => request<{ whiteLabel: any }>('/whitelabel/profile', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  getWhiteLabelTenants: (params?: { search?: string; status?: string }) => {
+    const qs = new URLSearchParams()
+    if (params?.search) qs.set('search', params.search)
+    if (params?.status) qs.set('status', params.status)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return request<{ tenants: any[] }>(`/whitelabel/tenants${suffix}`)
+  },
+  createWhiteLabelTenant: (data: any) => request<{ tenant: any }>('/whitelabel/tenants', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
+  getWhiteLabelUsers: () => request<{ users: any[] }>('/whitelabel/users'),
 }
