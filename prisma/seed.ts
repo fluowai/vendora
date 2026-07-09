@@ -322,7 +322,7 @@ async function main() {
         description: "Especialista em qualificar leads que chegam pelos canais de entrada. Agenda reuniões e identifica o perfil do cliente ideal.",
         modelProvider: "gemini", modelName: "gemini-3-flash-preview", temperature: 0.7,
         basePrompt: "Seu foco é qualificar leads rapidamente. Faça perguntas estratégicas para entender dor, orçamento e urgência.",
-        status: "active", channels: ["whatsapp", "instagram", "web"], isPublished: true, installs: 1240, rating: 4.8,
+        status: "paused", enabled: false, channels: ["whatsapp", "instagram", "web"], isPublished: false, installs: 1240, rating: 4.8,
         tags: ["vendas", "qualificacao", "lead-generation"],
       },
       {
