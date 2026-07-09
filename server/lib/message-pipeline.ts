@@ -53,6 +53,17 @@ function fallbackAgentResponse(input: {
   return `Recebi sua mensagem. ${input.agentName ? `${input.agentName} vai continuar esse atendimento.` : "Vou continuar esse atendimento."}`;
 }
 
+function isLlmConfigurationError(message?: string | null) {
+  const text = String(message || "").toLowerCase();
+  return text.includes("api key not configured")
+    || text.includes("permission_denied")
+    || text.includes("unregistered callers")
+    || text.includes("unauthorized")
+    || text.includes("invalid api key")
+    || text.includes("401")
+    || text.includes("403");
+}
+
 function getBridgeHeaders() {
   return {
     "Content-Type": "application/json",
@@ -280,6 +291,28 @@ export async function processIncomingMessage(input: {
     }
   } catch (error: any) {
     llmError = error.message || "Erro ao executar IA";
+    if (isLlmConfigurationError(llmError) && !scheduling?.context) {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { aiEnabled: false, status: "pending_human" },
+      });
+      emitToConversation(conversation.id, "conversation:handoff", {
+        conversationId: conversation.id,
+        reason: "LLM provider not configured",
+        llmError,
+        agentId: agent.id,
+      });
+      if (remoteJid && conversation.channel === "whatsmeow") {
+        void sendTypingIndicator(remoteJid, "paused");
+      }
+      return {
+        handoff: true,
+        reason: "LLM provider not configured",
+        conversationId: conversation.id,
+        agentId: agent.id,
+        llmError,
+      };
+    }
     responseText = fallbackAgentResponse({
       agentName: agent.name,
       toolContext: scheduling?.context,

@@ -56,11 +56,36 @@ const segments = [
 ]
 
 const providers = [
-  { id: "gemini", label: "Google Gemini", hint: "Rapido e economico" },
-  { id: "openai", label: "OpenAI", hint: "Conversas complexas" },
+  { id: "groq", label: "Groq", hint: "Rapido para WhatsApp e SDR" },
+  { id: "openai", label: "ChatGPT / OpenAI", hint: "GPT-4o e GPT-4o mini" },
   { id: "anthropic", label: "Anthropic Claude", hint: "Analise e seguranca" },
-  { id: "groq", label: "Groq", hint: "Baixa latencia" },
+  { id: "gemini", label: "Google Gemini", hint: "Opcao Google" },
 ]
+
+const providerModels: Record<string, { id: string; label: string; hint: string }[]> = {
+  groq: [
+    { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", hint: "Mais capacidade" },
+    { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B", hint: "Mais rapido" },
+    { id: "deepseek-r1-distill-llama-70b", label: "DeepSeek R1 70B", hint: "Raciocinio" },
+  ],
+  openai: [
+    { id: "gpt-4o", label: "ChatGPT GPT-4o", hint: "Qualidade geral" },
+    { id: "gpt-4o-mini", label: "ChatGPT GPT-4o mini", hint: "Custo/latencia" },
+    { id: "gpt-4-turbo", label: "GPT-4 Turbo", hint: "Compatibilidade" },
+  ],
+  anthropic: [
+    { id: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet", hint: "Analise forte" },
+    { id: "claude-3-haiku-20240307", label: "Claude 3 Haiku", hint: "Rapido" },
+  ],
+  gemini: [
+    { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", hint: "Padrao antigo" },
+    { id: "gemini-3-pro-preview", label: "Gemini 3 Pro", hint: "Mais capacidade" },
+    { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", hint: "Compatibilidade" },
+  ],
+}
+
+const defaultProvider = "groq"
+const defaultModel = providerModels[defaultProvider][0].id
 
 const channels = [
   { id: "whatsapp", label: "WhatsApp" },
@@ -141,8 +166,8 @@ export function AgentForm({
     name: initial?.name || "",
     description: initial?.description || "",
     segment: initial?.segment || "vendas",
-    provider: initial?.llmConfig?.provider || "gemini",
-    model: initial?.llmConfig?.model || "gemini-3-flash-preview",
+    provider: initial?.llmConfig?.provider || defaultProvider,
+    model: initial?.llmConfig?.model || defaultModel,
     systemPrompt: initial?.llmConfig?.systemPrompt || promptTemplates.vendas,
     temperature: initial?.llmConfig?.temperature ?? 0.7,
     channels: initial?.channels || ["web"],
@@ -183,6 +208,7 @@ export function AgentForm({
   const promptCharacters = form.systemPrompt.length
   const hasWhatsAppChannel = form.channels.includes("whatsapp")
   const whatsappNeedsBinding = hasWhatsAppChannel && form.whatsappInstanceIds.length === 0
+  const modelOptions = providerModels[form.provider] || []
 
   async function handleAvatarUpload(file: File) {
     if (!file) return
@@ -488,7 +514,15 @@ export function AgentForm({
                           <button
                             key={provider.id}
                             type="button"
-                            onClick={() => setForm((f) => ({ ...f, provider: provider.id }))}
+                            onClick={() => setForm((f) => {
+                              const nextModels = providerModels[provider.id] || []
+                              const currentModelBelongsToProvider = nextModels.some((model) => model.id === f.model)
+                              return {
+                                ...f,
+                                provider: provider.id,
+                                model: currentModelBelongsToProvider ? f.model : (nextModels[0]?.id || f.model),
+                              }
+                            })}
                             className={cn(
                               "rounded-xl border p-3 text-left transition-all",
                               form.provider === provider.id ? "bg-primary/10 text-primary border-primary/30" : "bg-bg text-muted border-border hover:border-primary/30"
@@ -502,12 +536,44 @@ export function AgentForm({
                     </div>
                     <div>
                       <label className="text-[10px] font-bold text-muted uppercase tracking-wider block mb-2">Modelo</label>
+                      <select
+                        value={modelOptions.some((model) => model.id === form.model) ? form.model : "__custom"}
+                        onChange={(e) => {
+                          if (e.target.value !== "__custom") {
+                            setForm((f) => ({ ...f, model: e.target.value }))
+                          }
+                        }}
+                        className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary/50"
+                      >
+                        {modelOptions.map((model) => (
+                          <option key={model.id} value={model.id}>{model.label}</option>
+                        ))}
+                        {!modelOptions.some((model) => model.id === form.model) && <option value="__custom">Modelo personalizado</option>}
+                      </select>
                       <input
                         value={form.model}
                         onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-                        className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm outline-none focus:border-primary/50"
+                        placeholder="Ou digite outro model id"
+                        className="mt-2 w-full bg-bg border border-border rounded-xl px-4 py-2.5 text-xs outline-none focus:border-primary/50"
                       />
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    {modelOptions.map((model) => (
+                      <button
+                        key={model.id}
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, model: model.id }))}
+                        className={cn(
+                          "rounded-xl border p-3 text-left transition-all",
+                          form.model === model.id ? "bg-primary/10 text-primary border-primary/30" : "bg-bg text-muted border-border hover:border-primary/30"
+                        )}
+                      >
+                        <span className="block text-xs font-bold">{model.label}</span>
+                        <span className="block text-[10px] mt-1">{model.hint}</span>
+                      </button>
+                    ))}
                   </div>
 
                   <div>

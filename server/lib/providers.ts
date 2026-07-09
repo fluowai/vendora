@@ -77,7 +77,7 @@ async function executeOpenAI(config: LLMConfig, prompt: string, context?: string
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: config.model || 'gpt-4-turbo',
+      model: config.model || 'gpt-4o',
       messages,
       temperature: config.temperature ?? 0.7,
       max_tokens: config.maxTokens ?? 1024,
@@ -176,9 +176,9 @@ export const AVAILABLE_MODELS: Record<LLMProvider, { id: string; name: string }[
     { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
   ],
   openai: [
+    { id: 'gpt-4o', name: 'ChatGPT GPT-4o' },
+    { id: 'gpt-4o-mini', name: 'ChatGPT GPT-4o Mini' },
     { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
-    { id: 'gpt-4o', name: 'GPT-4o' },
-    { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
   ],
   anthropic: [
     { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },

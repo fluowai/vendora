@@ -484,6 +484,7 @@ async function materializeIncomingMessage(input: {
     ? await prisma.channelInstance.findFirst({
         where: {
           id: input.instanceId,
+          status: { in: ["active", "connected"] },
           channel: { tenantId: input.tenantId, provider: input.provider },
         },
         include: { channel: true },
@@ -917,6 +918,25 @@ router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Res
     return;
   }
 
+  if (!instanceId) {
+    res.status(400).json({ error: "instanceId obrigatorio para webhook whatsmeow" });
+    return;
+  }
+
+  const incomingInstance = await prisma.channelInstance.findFirst({
+    where: {
+      id: instanceId,
+      status: { in: ["active", "connected"] },
+      channel: { tenantId, provider: "whatsmeow" },
+    },
+    select: { id: true },
+  });
+
+  if (!incomingInstance) {
+    res.status(404).json({ error: "Instancia whatsmeow inativa ou nao encontrada para este tenant" });
+    return;
+  }
+
   const rawFrom = asString(req.body.from || req.body.senderJid || req.body.senderPnJid || req.body.senderAltJid || req.body.sender || req.body.remoteJid || req.body.jid);
   const rawChatJid = asString(req.body.rawChatJid || req.body.chatId || req.body.remoteJid || req.body.conversationId || rawFrom);
   const rawGroupJid = firstJid(req.body.chatId, req.body.remoteJid, req.body.conversationId, rawChatJid);
@@ -1077,6 +1097,16 @@ router.get("/whatsmeow/instances/:id/status",
     }
 
     try {
+      const instanceConfig = instance.config as any;
+      if (instanceConfig?.webhookUrl) {
+        await fetch(`${bridgeUrl}/config`, {
+          method: "POST",
+          headers: getWhatsmeowHeaders(),
+          body: JSON.stringify({ webhookUrl: instanceConfig.webhookUrl }),
+          signal: AbortSignal.timeout(3000),
+        }).catch((error) => logger.warn("[Whatsmeow] failed to sync instance webhook before status", { error, instanceId: instance.id }));
+      }
+
       const response = await fetch(`${bridgeUrl}/status`);
       const data = await response.json().catch(() => ({}));
       const identity = whatsmeowIdentityFromStatus(data);

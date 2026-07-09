@@ -24,6 +24,19 @@ function arrayRule(value: any): string[] {
     : [];
 }
 
+function routingLlmConfig() {
+  if (process.env.GROQ_API_KEY) {
+    return { provider: "groq" as const, model: "llama-3.1-8b-instant", temperature: 0.2, maxTokens: 256 };
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return { provider: "openai" as const, model: "gpt-4o-mini", temperature: 0.2, maxTokens: 256 };
+  }
+  if (process.env.GEMINI_API_KEY) {
+    return { provider: "gemini" as const, model: "gemini-3-flash-preview", temperature: 0.2, maxTokens: 256 };
+  }
+  return { provider: "groq" as const, model: "llama-3.1-8b-instant", temperature: 0.2, maxTokens: 256 };
+}
+
 export async function routeMessage(tenantId: string, message: string, conversationId?: string): Promise<RouteResult> {
   const [allAgents, conversation] = await Promise.all([
     prisma.aiAgent.findMany({
@@ -94,7 +107,7 @@ Se a mensagem indicar insatisfacao, raiva, ou necessidade de atendimento humano 
 
   try {
     const result = await executeLLM(
-      { provider: "gemini", model: "gemini-3-flash-preview", temperature: 0.2, maxTokens: 256 },
+      routingLlmConfig(),
       prompt,
     );
 
@@ -141,7 +154,7 @@ export async function checkHandoff(agentId: string, message: string, conversatio
   if (rules.sentimento === "negativo") {
     try {
       const sentimentResult = await executeLLM(
-        { provider: "gemini", model: "gemini-3-flash-preview", temperature: 0.1, maxTokens: 50 },
+        { ...routingLlmConfig(), temperature: 0.1, maxTokens: 50 },
         `Classifique o sentimento desta mensagem como "positivo", "neutro" ou "negativo". Responda apenas uma palavra.\n\nMensagem: "${message}"`,
       );
       const sentiment = sentimentResult.text.toLowerCase().trim();

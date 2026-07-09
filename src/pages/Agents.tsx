@@ -118,8 +118,8 @@ export default function Agents() {
         segment,
         status: "draft",
         llmConfig: {
-          provider: "gemini",
-          model: "gemini-3-flash-preview",
+          provider: "groq",
+          model: "llama-3.3-70b-versatile",
           temperature: 0.7,
           systemPrompt: "",
         },
