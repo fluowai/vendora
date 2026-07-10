@@ -161,7 +161,7 @@ router.post("/bridge/stop", async (_req: Request, res: Response) => {
 
 router.get("/bridge/status", async (_req: Request, res: Response) => {
   const wacallsUrl = process.env.WACALLS_URL || null;
-  const wahaplusUrl = process.env.WAHAPLUS_URL || null;
+  const wahaplusUrl = process.env.WAHAPLUS_URL || "http://vendedoraai_wahaplus:3000";
   res.json({
     gateways: {
       wacalls: {

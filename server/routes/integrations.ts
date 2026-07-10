@@ -52,6 +52,74 @@ function getWahaplusUrl() {
   return (process.env.WAHAPLUS_URL || "").replace(/\/$/, "");
 }
 
+function getWahaplusCandidateUrls() {
+  const configured = getWahaplusUrl();
+  return Array.from(new Set([
+    configured,
+    "http://vendedoraai_wahaplus:3000",
+    "http://wahaplus:3000",
+  ].filter(Boolean)));
+}
+
+async function readResponseBody(response: globalThis.Response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json().catch(() => ({}));
+  }
+  if (contentType.startsWith("image/")) {
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return { image: `data:${contentType.split(";")[0]};base64,${buffer.toString("base64")}` };
+  }
+  const text = await response.text().catch(() => "");
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
+async function fetchWahaplus(path: string, init?: RequestInit, timeoutMs = 7000) {
+  const urls = getWahaplusCandidateUrls();
+  if (urls.length === 0) {
+    throw new Error("WAHAPLUS_URL nao configurado");
+  }
+
+  let lastError: any = null;
+  for (const baseUrl of urls) {
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          ...(init?.headers || {}),
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const data = await readResponseBody(response);
+      return { baseUrl, response, data };
+    } catch (error: any) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("WAHA+ indisponivel");
+}
+
+async function fetchFirstWahaplus(paths: string[], init?: RequestInit, timeoutMs = 7000) {
+  let last: any = null;
+  for (const path of paths) {
+    const result = await fetchWahaplus(path, init, timeoutMs).catch((error) => {
+      last = error;
+      return null;
+    });
+    if (result && result.response.status !== 404) return result;
+    last = result;
+  }
+  if (last?.response) return last;
+  throw last || new Error("WAHA+ indisponivel");
+}
+
 function whatsmeowBridgeError(error?: any) {
   const message = error?.message || String(error || "");
   if (!message || message === "fetch failed" || message.includes("ECONNREFUSED") || message.includes("timed out")) {
@@ -1270,7 +1338,8 @@ router.get("/whatsmeow/instances/:id/qr",
             ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
           },
           body: JSON.stringify({ webhookUrl: instanceConfig.webhookUrl }),
-        });
+          signal: AbortSignal.timeout(3000),
+        }).catch((error) => logger.warn("[Whatsmeow] failed to sync instance webhook before qr", { error, instanceId: instance.id }));
       }
       const bridge = await fetchWhatsmeowBridgeJson("/qr", undefined, 5000);
       const response = bridge!.response;
@@ -1717,6 +1786,100 @@ router.post("/whatsapp-cloud/send/template", whatsappSendLimiter, async (req: Re
     res.json({ sent: true, messageId: data?.messages?.[0]?.id, result: data });
   } catch (error: any) {
     res.status(502).json({ error: error.message || "Falha ao enviar template" });
+  }
+});
+
+// ============================================================
+// WAHA+ robust routes (stack-aware)
+// ============================================================
+
+router.get("/wahaplus/status", async (_req: Request, res: Response) => {
+  try {
+    const { baseUrl, response, data } = await fetchFirstWahaplus([
+      "/api/health",
+      "/api/sessions",
+    ], undefined, 5000);
+    res.json({
+      connected: response.ok,
+      configured: true,
+      health: data,
+      url: baseUrl,
+      candidates: getWahaplusCandidateUrls(),
+    });
+  } catch (error: any) {
+    res.json({
+      connected: false,
+      configured: getWahaplusCandidateUrls().length > 0,
+      candidates: getWahaplusCandidateUrls(),
+      error: error.message || "WAHA+ indisponivel",
+    });
+  }
+});
+
+router.get("/wahaplus/sessions", async (_req: Request, res: Response) => {
+  try {
+    const { data } = await fetchWahaplus("/api/sessions");
+    res.json({ sessions: Array.isArray(data) ? data : data?.sessions || [] });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponivel" });
+  }
+});
+
+router.post("/wahaplus/sessions", async (req: Request, res: Response) => {
+  const { name } = req.body;
+  if (!name) {
+    res.status(400).json({ error: "name obrigatorio" });
+    return;
+  }
+
+  try {
+    const { baseUrl, response, data } = await fetchWahaplus("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    await fetchFirstWahaplus([
+      `/api/sessions/${encodeURIComponent(name)}/start`,
+      `/api/${encodeURIComponent(name)}/start`,
+    ], { method: "POST" }, 5000).catch(() => null);
+    res.status(response.status).json({ ...data, name: data?.name || name, url: baseUrl });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponivel" });
+  }
+});
+
+router.delete("/wahaplus/sessions/:sid", async (req: Request, res: Response) => {
+  try {
+    const sid = encodeURIComponent(req.params.sid);
+    const { response } = await fetchFirstWahaplus([
+      `/api/sessions/${sid}`,
+      `/api/${sid}/logout`,
+    ], { method: "DELETE" });
+    res.status(response.status).end();
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponivel" });
+  }
+});
+
+router.get("/wahaplus/sessions/:sid/qr", async (req: Request, res: Response) => {
+  try {
+    const sid = encodeURIComponent(req.params.sid);
+    const { baseUrl, response, data } = await fetchFirstWahaplus([
+      `/api/screenshot/${sid}`,
+      `/api/${sid}/auth/qr`,
+      `/api/sessions/${sid}/auth/qr`,
+      `/api/sessions/${sid}/qr`,
+      `/api/qr/${sid}`,
+    ]);
+    res.json({
+      ...data,
+      sessionId: req.params.sid,
+      url: baseUrl,
+      bridgeAvailable: response.ok,
+      qr: data.qr || data.base64 || data.image || data.raw || null,
+      error: response.ok ? data.error : (data.error || data.message || "QR nao disponivel nesta sessao"),
+    });
+  } catch (error: any) {
+    res.status(503).json({ error: error.message || "WAHA+ indisponivel" });
   }
 });
 

@@ -1,5 +1,5 @@
 function getBaseUrl(): string {
-  return (process.env.WAHAPLUS_URL || "").replace(/\/$/, "");
+  return (process.env.WAHAPLUS_URL || "http://vendedoraai_wahaplus:3000").replace(/\/$/, "");
 }
 
 export type WaCallDirection = "outbound" | "inbound";

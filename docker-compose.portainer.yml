@@ -53,7 +53,7 @@ services:
       - "WACALLS_URL="
       - "WACALLS_PORT=8081"
       - "WACALLS_DB_PATH=/data/wacalls.db"
-      - "WAHAPLUS_URL="
+      - "WAHAPLUS_URL=http://vendedoraai_wahaplus:3000"
       - "WAHAPLUS_PORT=3000"
       - "WAHAPLUS_IMAGE=devlikeapro/waha"
       - "WAHAPLUS_LICENSE="
@@ -180,6 +180,30 @@ services:
         condition: any
         delay: 5s
 
+  wahaplus:
+    image: ${WAHAPLUS_IMAGE:-devlikeapro/waha}
+    environment:
+      - "WAHA_LICENSE_KEY=${WAHAPLUS_LICENSE:-}"
+    volumes:
+      - wahaplus_data:/app/.sessions
+      - wahaplus_data:/app/.media
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/sessions"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
+    networks:
+      vendaora_internal:
+        aliases:
+          - wahaplus
+          - vendedoraai_wahaplus
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
@@ -205,6 +229,7 @@ services:
 volumes:
   redis_data:
   whatsmeow_data:
+  wahaplus_data:
   uploads_data:
 
 networks:

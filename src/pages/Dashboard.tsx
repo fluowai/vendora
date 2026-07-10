@@ -60,7 +60,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         <div className="lg:col-span-2 bg-surface rounded-[2rem] lg:rounded-3xl border border-border p-5 lg:p-8 card-shadow">
           <h2 className="text-lg lg:text-xl font-display font-bold mb-6">Volume Semanal</h2>
-          <div className="h-[250px] lg:h-[300px] -ml-4 min-w-0 min-h-[250px]">
+          <div className="h-[250px] lg:h-[300px] w-full min-w-0 min-h-[250px] overflow-hidden">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <AreaChart data={daily.length > 0 ? daily : [{ name: "Sem dados", conversas: 0, vendas: 0 }]}>
                 <defs>

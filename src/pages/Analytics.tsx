@@ -140,7 +140,7 @@ export default function Analytics() {
             <h2 className="font-bold text-lg">Volume de Conversas</h2>
             <span className="text-[10px] text-muted">Agentes vs Leads</span>
           </div>
-          <div className="h-[280px] -ml-4 min-w-0 min-h-[280px]">
+          <div className="h-[280px] w-full min-w-0 min-h-[280px] overflow-hidden">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <BarChart data={daily}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" vertical={false} />
@@ -225,7 +225,7 @@ export default function Analytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-surface rounded-[2rem] border border-border p-6">
           <h2 className="font-bold text-lg mb-6">Evolução da Satisfação</h2>
-          <div className="h-[200px] -ml-4 min-w-0 min-h-[200px]">
+          <div className="h-[200px] w-full min-w-0 min-h-[200px] overflow-hidden">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
               <AreaChart data={satisfactionData}>
                 <defs>

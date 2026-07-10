@@ -54,7 +54,7 @@ export class WahaplusSSEBridge {
   }
 
   private async connect() {
-    const baseUrl = process.env.WAHAPLUS_URL?.replace(/\/$/, "");
+    const baseUrl = (process.env.WAHAPLUS_URL || "http://vendedoraai_wahaplus:3000").replace(/\/$/, "");
     if (!baseUrl) {
       this.scheduleReconnect(10000);
       return;

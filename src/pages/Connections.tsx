@@ -84,8 +84,13 @@ export default function Connections() {
       if (status.connected) {
         const data = await api.getWahaplusSessions();
         setWahaplusSessions(data.sessions || []);
+      } else {
+        setWahaplusSessions([]);
       }
-    } catch {}
+    } catch (e: any) {
+      setWahaplusStatus({ connected: false, error: e.message || "WAHA+ indisponivel" });
+      setWahaplusSessions([]);
+    }
   };
 
   const createInstance = async () => {
@@ -119,9 +124,11 @@ export default function Connections() {
     try {
       setSaving(true);
       setError("");
-      await api.createWahaplusSession(wahaplusSessionName.trim());
+      const sessionName = wahaplusSessionName.trim();
+      const created = await api.createWahaplusSession(sessionName);
       setWahaplusSessionName("");
       await loadWahaplusSessions();
+      await openWahaplusQr(created.name || created.id || sessionName);
     } catch (e: any) {
       setError(e.message || "Erro ao criar sessao WAHA+");
     } finally {
@@ -143,7 +150,9 @@ export default function Connections() {
       setPairingError("");
       const data = await api.getWahaplusSessionQr(sid);
       if (data.qr) {
-        const image = await QRCode.toDataURL(data.qr, { margin: 2, width: 280 });
+        const image = String(data.qr).startsWith("data:image/")
+          ? data.qr
+          : await QRCode.toDataURL(data.qr, { margin: 2, width: 280 });
         setPairingQr(image);
         setPairingId(`wahaplus-${sid}`);
         setPairingSecondsLeft(50);
