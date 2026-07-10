@@ -9,6 +9,7 @@ import {
   QrCode,
   RefreshCw,
   Smartphone,
+  Trash2,
   X,
   Cpu,
 } from "lucide-react";
@@ -309,6 +310,32 @@ export default function Connections() {
     }
   };
 
+  const deleteInstance = async (connection: any) => {
+    const ok = confirm(`Remover definitivamente a instancia "${connection.name}" e as conversas vinculadas a ela? Esta acao nao pode ser desfeita.`);
+    if (!ok) return;
+    try {
+      setCheckingId(connection.id);
+      setError("");
+      await api.deleteConnection(connection.id, true);
+      setConnections((items) => items.filter((item) => item.id !== connection.id));
+      setStatusByInstance((items) => {
+        const next = { ...items };
+        delete next[connection.id];
+        return next;
+      });
+      setQrByInstance((items) => {
+        const next = { ...items };
+        delete next[connection.id];
+        return next;
+      });
+      if (pairingId === connection.id) closePairing();
+    } catch (e: any) {
+      setError(e.message || "Erro ao remover instancia");
+    } finally {
+      setCheckingId("");
+    }
+  };
+
   const connectionView = (connection: any) => {
     const status = statusByInstance[connection.id] || {};
     const phone = status.phone || connection.phone || connection.config?.phone || "";
@@ -496,6 +523,14 @@ export default function Connections() {
                             title="Desconectar"
                           >
                             <LogOut className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => deleteInstance(connection)}
+                            disabled={checkingId === connection.id}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 border border-red-100 text-red-700 hover:bg-red-100 disabled:opacity-50"
+                            title="Remover instancia"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>

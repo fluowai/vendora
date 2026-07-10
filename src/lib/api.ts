@@ -186,6 +186,8 @@ export const api = {
   getWhatsmeowInstanceStatus: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/status`),
   getWhatsmeowInstanceQr: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/qr`),
   logoutWhatsmeowInstance: (id: string) => request<any>(`/integrations/whatsmeow/instances/${id}/logout`, { method: 'POST' }),
+  deleteConnection: (id: string, force = false) =>
+    request<{ success: boolean; bridgeAvailable?: boolean; bridgeError?: string | null }>(`/integrations/connections/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
 
   // WAHA+ API
   getWahaplusStatus: () => request<any>('/integrations/wahaplus/status'),

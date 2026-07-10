@@ -57,6 +57,17 @@ function slugify(value: string) {
     .replace(/(^-|-$)/g, "")
 }
 
+async function readApiJson<T = any>(res: Response): Promise<T> {
+  const body = await res.text()
+  if (!body.trim()) return {} as T
+  try {
+    return JSON.parse(body) as T
+  } catch {
+    const preview = body.trim().slice(0, 120).replace(/\s+/g, " ")
+    throw new Error(`Resposta invalida da API (${res.status} ${res.statusText}): ${preview || "corpo vazio"}`)
+  }
+}
+
 export default function SuperAdminTenants() {
   const navigate = useNavigate()
   const [tenants, setTenants] = useState<Tenant[]>([])
@@ -82,13 +93,16 @@ export default function SuperAdminTenants() {
       const res = await fetch(`/api/superadmin/tenants?${params}`, {
         headers: { Authorization: `Bearer ${token()}` },
       })
-      const data = await res.json()
+      const data = await readApiJson(res)
       if (res.ok) {
         setTenants(data.tenants)
         setTotalPages(data.pagination.totalPages)
+      } else {
+        setError(data.error || "Nao foi possivel carregar os clientes.")
       }
     } catch (err) {
       console.error(err)
+      setError(err instanceof Error ? err.message : "Erro ao carregar clientes.")
     } finally {
       setLoading(false)
     }
@@ -100,8 +114,8 @@ export default function SuperAdminTenants() {
         fetch("/api/superadmin/plans", { headers: { Authorization: `Bearer ${token()}` } }),
         fetch("/api/superadmin/whitelabels?limit=100", { headers: { Authorization: `Bearer ${token()}` } }),
       ])
-      const plansData = await plansRes.json()
-      const whiteLabelsData = await whiteLabelsRes.json()
+      const plansData = await readApiJson(plansRes)
+      const whiteLabelsData = await readApiJson(whiteLabelsRes)
       if (plansRes.ok) setPlans(plansData.plans || [])
       if (whiteLabelsRes.ok) setWhiteLabels(whiteLabelsData.whiteLabels || [])
     } catch (err) {
@@ -139,7 +153,7 @@ export default function SuperAdminTenants() {
         headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
         body: JSON.stringify(editData),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await readApiJson(res).catch((err) => ({ error: err.message }))
       if (!res.ok) {
         setError(data.error || "Nao foi possivel salvar o cliente.")
         return
@@ -185,7 +199,7 @@ export default function SuperAdminTenants() {
         headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await readApiJson(res).catch((err) => ({ error: err.message }))
       if (!res.ok) {
         setError(data.error || "Nao foi possivel criar o cliente.")
         return
@@ -209,7 +223,7 @@ export default function SuperAdminTenants() {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token()}` },
       })
-      const data = await res.json().catch(() => ({}))
+      const data = await readApiJson(res).catch((err) => ({ error: err.message }))
       if (!res.ok) {
         alert(data.error || "Nao foi possivel excluir o cliente.")
         return

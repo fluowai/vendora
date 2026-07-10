@@ -30,13 +30,31 @@ function getWhatsmeowHeaders() {
   } as Record<string, string>;
 }
 
+async function fetchWhatsmeowBridgeJson(path: string, init?: RequestInit, timeoutMs = 5000) {
+  const bridgeUrl = getWhatsmeowBridgeUrl();
+  if (!bridgeUrl) {
+    return null;
+  }
+
+  const response = await fetch(`${bridgeUrl}${path}`, {
+    ...init,
+    headers: {
+      ...getWhatsmeowHeaders(),
+      ...(init?.headers || {}),
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data = await response.json().catch(() => ({}));
+  return { response, data };
+}
+
 function getWahaplusUrl() {
   return (process.env.WAHAPLUS_URL || "").replace(/\/$/, "");
 }
 
 function whatsmeowBridgeError(error?: any) {
   const message = error?.message || String(error || "");
-  if (!message || message === "fetch failed" || message.includes("ECONNREFUSED")) {
+  if (!message || message === "fetch failed" || message.includes("ECONNREFUSED") || message.includes("timed out")) {
     return "Bridge WhatsApp offline. Inicie o whatsmeow-bridge na porta 4000 para gerar o QR Code.";
   }
   return message;
@@ -896,6 +914,95 @@ router.post("/connections",
   }
 );
 
+router.delete("/connections/:id",
+  authMiddleware,
+  requirePermission("channels", "manage"),
+  async (req: Request, res: Response) => {
+    const instance = await prisma.channelInstance.findFirst({
+      where: {
+        id: req.params.id,
+        ...(req.user!.isSuperadmin ? {} : { channel: { tenantId: req.user!.tenantId } }),
+      },
+      include: { channel: true },
+    });
+
+    if (!instance) {
+      res.status(404).json({ error: "Instancia nao encontrada" });
+      return;
+    }
+
+    const conversationCount = await prisma.conversation.count({
+      where: { channelInstanceId: instance.id },
+    });
+    const force = req.query.force === "true";
+    if (conversationCount > 0 && !force) {
+      res.status(409).json({
+        error: "Instancia possui conversas vinculadas. Confirme a exclusao definitiva para remover a instancia.",
+        summary: { conversations: conversationCount },
+      });
+      return;
+    }
+
+    let bridgeError: string | null = null;
+    if (instance.channel.provider === "whatsmeow") {
+      if (!getWhatsmeowBridgeUrl()) {
+        bridgeError = "WHATSMEOW_BRIDGE_URL nao configurado";
+      } else {
+        try {
+          await fetchWhatsmeowBridgeJson("/logout", { method: "POST" }, 4000);
+        } catch (error: any) {
+          bridgeError = whatsmeowBridgeError(error);
+          logger.warn("[Whatsmeow] instance delete continued after bridge logout failed", {
+            error,
+            instanceId: instance.id,
+          });
+        }
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const conversations = await tx.conversation.findMany({
+        where: { channelInstanceId: instance.id },
+        select: { id: true },
+      });
+      const conversationIds = conversations.map((item: { id: string }) => item.id);
+
+      if (conversationIds.length > 0) {
+        await tx.flowRun.updateMany({
+          where: { conversationId: { in: conversationIds } },
+          data: { conversationId: null },
+        });
+        await tx.deal.updateMany({
+          where: { conversationId: { in: conversationIds } },
+          data: { conversationId: null },
+        });
+        await tx.ticket.updateMany({
+          where: { conversationId: { in: conversationIds } },
+          data: { conversationId: null },
+        });
+        await tx.ombudsmanCase.updateMany({
+          where: { conversationId: { in: conversationIds } },
+          data: { conversationId: null },
+        });
+        await tx.appointment.updateMany({
+          where: { conversationId: { in: conversationIds } },
+          data: { conversationId: null },
+        });
+        await tx.message.deleteMany({ where: { conversationId: { in: conversationIds } } });
+        await tx.conversation.deleteMany({ where: { id: { in: conversationIds } } });
+      }
+
+      await tx.channelInstance.delete({ where: { id: instance.id } });
+    }, { maxWait: 10000, timeout: 30000 });
+
+    res.json({
+      success: true,
+      bridgeAvailable: !bridgeError,
+      bridgeError,
+    });
+  }
+);
+
 router.post("/whatsmeow/incoming", webhookLimiter, async (req: Request, res: Response) => {
   if (!assertWebhookSecret(req, res, getWhatsmeowWebhookSecret())) return;
 
@@ -1107,8 +1214,9 @@ router.get("/whatsmeow/instances/:id/status",
         }).catch((error) => logger.warn("[Whatsmeow] failed to sync instance webhook before status", { error, instanceId: instance.id }));
       }
 
-      const response = await fetch(`${bridgeUrl}/status`);
-      const data = await response.json().catch(() => ({}));
+      const bridge = await fetchWhatsmeowBridgeJson("/status", undefined, 5000);
+      const response = bridge!.response;
+      const data = bridge!.data;
       const identity = whatsmeowIdentityFromStatus(data);
       const config = (instance.config || {}) as any;
       if (response.ok && data.connected && (identity.jid || identity.phone || identity.pushName || identity.avatarUrl)) {
@@ -1164,8 +1272,9 @@ router.get("/whatsmeow/instances/:id/qr",
           body: JSON.stringify({ webhookUrl: instanceConfig.webhookUrl }),
         });
       }
-      const response = await fetch(`${bridgeUrl}/qr`);
-      const data = await response.json().catch(() => ({}));
+      const bridge = await fetchWhatsmeowBridgeJson("/qr", undefined, 5000);
+      const response = bridge!.response;
+      const data = bridge!.data;
       res.json({
         ...data,
         instanceId: instance.id,
@@ -1194,22 +1303,35 @@ router.post("/whatsmeow/instances/:id/logout",
     }
 
     try {
-      const response = await fetch(`${bridgeUrl}/logout`, {
-        method: "POST",
-        headers: getWhatsmeowHeaders(),
+      const bridge = await fetchWhatsmeowBridgeJson("/logout", { method: "POST" }, 5000);
+      const response = bridge!.response;
+      const data = bridge!.data;
+
+      await prisma.channelInstance.update({
+        where: { id: instance.id },
+        data: { status: "disconnected" },
       });
-      const data = await response.json().catch(() => ({}));
 
-      if (response.ok) {
-        await prisma.channelInstance.update({
-          where: { id: instance.id },
-          data: { status: "disconnected" },
-        });
-      }
-
-      res.status(response.status).json({ ...data, instanceId: instance.id });
+      res.json({
+        ...data,
+        success: true,
+        connected: false,
+        bridgeAvailable: response.ok,
+        instanceId: instance.id,
+        error: response.ok ? data.error : (data.error || "Bridge WhatsApp indisponivel. Instancia marcada como desconectada localmente."),
+      });
     } catch (error: any) {
-      res.status(503).json({ error: whatsmeowBridgeError(error) });
+      await prisma.channelInstance.update({
+        where: { id: instance.id },
+        data: { status: "disconnected" },
+      });
+      res.json({
+        success: true,
+        connected: false,
+        bridgeAvailable: false,
+        error: whatsmeowBridgeError(error),
+        instanceId: instance.id,
+      });
     }
   }
 );
@@ -1249,7 +1371,7 @@ router.get("/whatsmeow/qr", async (_req: Request, res: Response) => {
 router.post("/whatsmeow/pair/code", whatsappSendLimiter, async (req: Request, res: Response) => {
   const bridgeUrl = getWhatsmeowBridgeUrl();
   if (!bridgeUrl) {
-    res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL nÃ£o configurado" });
+    res.status(503).json({ error: "WHATSMEOW_BRIDGE_URL nao configurado" });
     return;
   }
 
