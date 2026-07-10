@@ -20,7 +20,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem("vendaora_token");
     if (token) {
       fetch("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } })
-        .then((res) => res.ok ? res.json() : null)
+        .then((res) => {
+          if (res.status === 401 || res.status === 404) {
+            localStorage.removeItem("vendaora_token");
+            localStorage.removeItem("vendaora_user");
+            localStorage.removeItem("vendaora_mega_token");
+            localStorage.removeItem("vendaora_mega_user");
+            setUserState(null);
+            return null;
+          }
+          return res.ok ? res.json() : null;
+        })
         .then((data) => {
           if (!data?.user) return;
           setUserState(data.user);

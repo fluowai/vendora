@@ -168,13 +168,13 @@ async function enrichAuthPayload(payload: AuthPayload): Promise<AuthPayload> {
         roleScope: true,
       },
     });
-    if (!user) return payload;
+    if (!user) return { ...payload, userId: "" };
     if (payload.supportMode && user.platformRole === "mega_admin" && payload.supportTenantId) {
       const tenant = await prisma.tenant.findUnique({
         where: { id: payload.supportTenantId },
         select: { id: true, name: true, whiteLabelId: true },
       });
-      if (!tenant) return payload;
+      if (!tenant) return { ...payload, userId: "" };
       return {
         ...payload,
         tenantId: tenant.id,
@@ -215,6 +215,10 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     } else {
       const payload = verifyToken(token);
       req.user = await enrichAuthPayload(payload);
+    }
+    if (!req.user.userId) {
+      res.status(401).json({ error: "Sessao invalida. Faca login novamente." });
+      return;
     }
     if (isMegaAdminOperationalAccess(req)) {
       res.status(403).json({ error: "Mega Admin deve acessar contas pelo modo suporte no painel Mega Admin" });
