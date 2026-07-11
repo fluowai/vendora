@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
+import * as XLSX from "xlsx";
 import {
   AlertCircle,
   Bot,
   CheckCircle2,
+  FileSpreadsheet,
   Loader2,
+  MessageSquareText,
   Pause,
   PhoneCall,
   Play,
   RefreshCw,
+  RotateCw,
   Send,
+  SlidersHorizontal,
+  Upload,
   XCircle,
 } from "lucide-react";
 import { api } from "@/src/lib/api";
@@ -19,6 +25,16 @@ type ContactRow = {
   name?: string
   phone: string
   email?: string
+  metadata?: Record<string, unknown>
+};
+
+type SmartCampaignResult = {
+  warning?: string | null
+  summary?: { valid: number; invalid: number; total: number; uniquePhones: number; errors: number }
+  blueprint?: {
+    variants?: { title: string; body: string }[]
+    rotation?: { instances?: { id: string; name: string; provider: string; status: string }[] }
+  }
 };
 
 function normalizePhone(value: string) {
@@ -49,18 +65,75 @@ function parseContacts(value: string): ContactRow[] {
     .filter(Boolean) as ContactRow[];
 }
 
+function rowsToContacts(rows: unknown[][]): ContactRow[] {
+  const nonEmpty = rows.filter((row) => row.some((cell) => String(cell || "").trim()));
+  if (!nonEmpty.length) return [];
+
+  const first = nonEmpty[0].map((cell) => String(cell || "").trim().toLowerCase());
+  const hasHeader = first.some((cell) => ["telefone", "phone", "celular", "whatsapp", "nome", "name", "email"].includes(cell));
+  const headers = hasHeader ? first : [];
+  const dataRows = hasHeader ? nonEmpty.slice(1) : nonEmpty;
+  const findColumn = (names: string[]) => headers.findIndex((header) => names.some((name) => header.includes(name)));
+  const phoneIndex = hasHeader ? findColumn(["telefone", "phone", "celular", "whatsapp", "numero"]) : -1;
+  const nameIndex = hasHeader ? findColumn(["nome", "name", "cliente", "contato"]) : -1;
+  const emailIndex = hasHeader ? findColumn(["email", "e-mail"]) : -1;
+  const seen = new Set<string>();
+
+  return dataRows.map((row) => {
+    const phoneCell = phoneIndex >= 0 ? row[phoneIndex] : row.find((cell) => normalizePhone(String(cell || "")).length >= 10);
+    const phone = normalizePhone(String(phoneCell || ""));
+    if (!phone || seen.has(phone)) return null;
+    seen.add(phone);
+
+    return {
+      phone,
+      name: nameIndex >= 0 ? String(row[nameIndex] || "").trim() : "",
+      email: emailIndex >= 0 ? String(row[emailIndex] || "").trim() : "",
+      metadata: { raw: row.map((cell) => String(cell || "").trim()) },
+    };
+  }).filter(Boolean) as ContactRow[];
+}
+
+async function parseCampaignFile(file: File) {
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  if (ext === "txt" || ext === "csv") {
+    const text = await file.text();
+    const rows = text.split(/\r?\n/).map((line) => line.split(/[;\t,]/).map((cell) => cell.trim()));
+    return rowsToContacts(rows);
+  }
+
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false });
+  return rowsToContacts(rows);
+}
+
+function contactsToText(rows: ContactRow[]) {
+  return rows.map((row) => [row.name, row.phone, row.email].filter(Boolean).join(";")).join("\n");
+}
+
 export default function Campaigns() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [connections, setConnections] = useState<any[]>([]);
+  const [funnels, setFunnels] = useState<any[]>([]);
   const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
   const [campaignName, setCampaignName] = useState("");
   const [objective, setObjective] = useState("");
+  const [funnelId, setFunnelId] = useState("");
   const [tone, setTone] = useState("consultivo e humano");
   const [links, setLinks] = useState("");
   const [mediaUrls, setMediaUrls] = useState("");
   const [rawContacts, setRawContacts] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [variantCount, setVariantCount] = useState(5);
+  const [intervalSeconds, setIntervalSeconds] = useState(90);
+  const [dailyLimit, setDailyLimit] = useState(250);
+  const [rotationStrategy, setRotationStrategy] = useState("round_robin");
+  const [result, setResult] = useState<SmartCampaignResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -78,6 +151,12 @@ export default function Campaigns() {
         api.getDialingCampaigns(),
         api.getConnections(),
       ]);
+      api.getFunnels()
+        .then((payload) => {
+          setFunnels(payload.funnels || []);
+          if (!funnelId && payload.funnels?.[0]?.id) setFunnelId(payload.funnels[0].id);
+        })
+        .catch(() => setFunnels([]));
       setCampaigns(campaignPayload.campaigns || []);
       if ((campaignPayload as any).migrationRequired) {
         setNotice((campaignPayload as any).warning || "Banco preparando as tabelas de campanhas.");
@@ -106,6 +185,29 @@ export default function Campaigns() {
     );
   }
 
+  async function handleFile(file?: File) {
+    if (!file) return;
+    setError("");
+    setNotice("");
+    setResult(null);
+    setParsing(true);
+    try {
+      const parsed = await parseCampaignFile(file);
+      if (!parsed.length) {
+        setError("Nao encontrei telefones validos no arquivo.");
+        return;
+      }
+      setRawContacts(contactsToText(parsed));
+      setFileName(file.name);
+      if (!campaignName) setCampaignName(file.name.replace(/\.[^.]+$/, ""));
+      setNotice(`${parsed.length} contatos carregados da lista.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao ler arquivo.");
+    } finally {
+      setParsing(false);
+    }
+  }
+
   async function createCampaign() {
     setError("");
     setNotice("");
@@ -127,20 +229,19 @@ export default function Campaigns() {
       const payload = await api.createSmartWhatsAppCampaign({
         campaignName,
         objective,
+        funnelId,
         tone,
         contacts,
         sessionIds: selectedSessions,
         links: links.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
         mediaUrls: mediaUrls.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
-        variantCount: 5,
-        intervalSeconds: 90,
-        dailyLimit: 250,
-        rotationStrategy: "round_robin",
+        variantCount,
+        intervalSeconds,
+        dailyLimit,
+        rotationStrategy,
       });
+      setResult(payload);
       setNotice(payload.warning || `Campanha criada com ${payload.summary?.valid || contacts.length} contatos validos.`);
-      setCampaignName("");
-      setObjective("");
-      setRawContacts("");
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao criar campanha.");
@@ -198,13 +299,27 @@ export default function Campaigns() {
         <section className="rounded-lg border border-border bg-surface p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Bot className="h-5 w-5" />
+              <FileSpreadsheet className="h-5 w-5" />
             </div>
             <div>
               <h2 className="font-display text-xl font-bold">Campanha inteligente</h2>
-              <p className="text-xs text-muted">Cole telefone, nome e email separados por linha.</p>
+              <p className="text-xs text-muted">Suba lista ou cole telefone, nome e email.</p>
             </div>
           </div>
+
+          <label className="mb-3 flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-bg p-4 text-center transition hover:border-primary">
+            {parsing ? <Loader2 className="h-7 w-7 animate-spin text-primary" /> : <Upload className="h-7 w-7 text-primary" />}
+            <div>
+              <p className="text-sm font-bold">{fileName || "Selecionar lista"}</p>
+              <p className="text-xs text-muted">xlsx, xls, csv ou txt</p>
+            </div>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv,.txt"
+              className="hidden"
+              onChange={(event) => handleFile(event.target.files?.[0])}
+            />
+          </label>
 
           <div className="space-y-3">
             <input
@@ -213,17 +328,33 @@ export default function Campaigns() {
               className="h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary"
               placeholder="Nome da campanha"
             />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <select
+                value={funnelId}
+                onChange={(event) => setFunnelId(event.target.value)}
+                className="h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary"
+              >
+                <option value="">Sem funil</option>
+                {funnels.map((funnel) => (
+                  <option key={funnel.id} value={funnel.id}>{funnel.name}</option>
+                ))}
+              </select>
+              <select
+                value={tone}
+                onChange={(event) => setTone(event.target.value)}
+                className="h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary"
+              >
+                <option value="consultivo e humano">Consultivo</option>
+                <option value="direto e comercial">Direto</option>
+                <option value="premium e discreto">Premium</option>
+                <option value="leve e conversacional">Conversacional</option>
+              </select>
+            </div>
             <textarea
               value={objective}
               onChange={(event) => setObjective(event.target.value)}
               className="min-h-24 w-full rounded-lg border border-border bg-bg p-3 text-sm outline-none focus:border-primary"
               placeholder="Objetivo comercial da campanha"
-            />
-            <input
-              value={tone}
-              onChange={(event) => setTone(event.target.value)}
-              className="h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary"
-              placeholder="Tom da mensagem"
             />
             <textarea
               value={rawContacts}
@@ -245,13 +376,29 @@ export default function Campaigns() {
                 placeholder="Midias, uma URL por linha"
               />
             </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <NumberInput label="Variacoes" value={variantCount} min={3} max={12} onChange={setVariantCount} />
+              <NumberInput label="Intervalo" value={intervalSeconds} min={15} max={3600} onChange={setIntervalSeconds} />
+              <NumberInput label="Limite dia" value={dailyLimit} min={1} max={5000} onChange={setDailyLimit} />
+            </div>
           </div>
 
           <div className="mt-4 rounded-lg border border-border bg-bg p-3">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-bold uppercase text-muted">Conexoes para rotacao</span>
+              <span className="flex items-center gap-2 text-xs font-bold uppercase text-muted">
+                <RotateCw className="h-3.5 w-3.5" /> Rotacao
+              </span>
               <span className="text-xs font-bold text-primary">{contacts.length} contatos</span>
             </div>
+            <select
+              value={rotationStrategy}
+              onChange={(event) => setRotationStrategy(event.target.value)}
+              className="mb-2 h-10 w-full rounded-lg border border-border bg-surface px-3 text-sm outline-none focus:border-primary"
+            >
+              <option value="round_robin">Rodizio entre instancias</option>
+              <option value="balanced">Balanceado por volume</option>
+              <option value="warmup">Aquecimento gradual</option>
+            </select>
             <div className="grid gap-2">
               {whatsAppConnections.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted">
@@ -288,12 +435,39 @@ export default function Campaigns() {
         </section>
 
         <section className="rounded-lg border border-border bg-surface shadow-sm">
+          {result?.blueprint?.variants?.length ? (
+            <div className="border-b border-border p-5">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <MessageSquareText className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="font-display text-xl font-bold">Mensagens Groq</h2>
+                  <p className="text-xs text-muted">
+                    {result.summary?.valid || 0} contatos validos, {result.summary?.invalid || 0} removidos
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {result.blueprint.variants.map((variant, index) => (
+                  <div key={`${variant.title}-${index}`} className="rounded-lg border border-border bg-bg p-3">
+                    <p className="mb-1 text-[11px] font-bold uppercase text-muted">{variant.title || `Variacao ${index + 1}`}</p>
+                    <p className="text-sm leading-relaxed">{variant.body}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex items-center justify-between border-b border-border p-5">
             <div>
               <h2 className="font-display text-xl font-bold">Campanhas</h2>
               <p className="text-xs text-muted">Ative, pause e acompanhe disparos automaticos.</p>
             </div>
-            <span className="text-xs font-bold text-muted">{campaigns.length} total</span>
+            <span className="inline-flex items-center gap-2 text-xs font-bold text-muted">
+              <SlidersHorizontal className="h-4 w-4" />
+              {campaigns.length} total
+            </span>
           </div>
 
           {loading ? (
@@ -345,6 +519,22 @@ export default function Campaigns() {
         </section>
       </div>
     </div>
+  );
+}
+
+function NumberInput({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[10px] font-bold uppercase text-muted">{label}</span>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="h-10 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary"
+      />
+    </label>
   );
 }
 
