@@ -1,6 +1,6 @@
 export type AgentStatus = 'active' | 'paused' | 'draft'
 export type AgentSegment = 'vendas' | 'suporte' | 'retencao' | 'saude' | 'juridico' | 'educacao' | 'imobiliario' | 'financeiro' | 'rh' | 'logistica' | 'ecommerce'
-export type LLMProvider = 'gemini' | 'openai' | 'anthropic' | 'groq' | 'custom'
+export type LLMProvider = 'gemini' | 'openai' | 'anthropic' | 'groq' | 'glm' | 'custom'
 export type ChannelType = 'whatsapp' | 'instagram' | 'web' | 'email' | 'telegram' | 'discord' | 'voice'
 
 export interface LLMConfig {

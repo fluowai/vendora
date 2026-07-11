@@ -24,7 +24,7 @@ export const schemas = {
     segment: z.enum(["vendas", "suporte", "retencao", "saude", "juridico", "educacao", "imobiliario", "financeiro", "rh", "logistica", "ecommerce"]),
     status: z.enum(["active", "paused", "draft"]).optional(),
     llmConfig: z.object({
-      provider: z.enum(["gemini", "openai", "anthropic", "groq", "custom"]),
+      provider: z.enum(["gemini", "openai", "anthropic", "groq", "glm", "custom"]),
       model: z.string().min(1),
       temperature: z.number().min(0).max(2).optional(),
       systemPrompt: z.string().optional(),
@@ -42,7 +42,7 @@ export const schemas = {
     segment: z.enum(["vendas", "suporte", "retencao", "saude", "juridico", "educacao", "imobiliario", "financeiro", "rh", "logistica", "ecommerce"]).optional(),
     status: z.enum(["active", "paused", "draft"]).optional(),
     llmConfig: z.object({
-      provider: z.enum(["gemini", "openai", "anthropic", "groq", "custom"]),
+      provider: z.enum(["gemini", "openai", "anthropic", "groq", "glm", "custom"]),
       model: z.string().min(1),
       temperature: z.number().min(0).max(2).optional(),
       systemPrompt: z.string().optional(),

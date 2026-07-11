@@ -18,6 +18,8 @@ export async function executeLLM(config: LLMConfig, prompt: string, context?: st
       return executeAnthropic(config, prompt, context)
     case 'groq':
       return executeGroq(config, prompt, context)
+    case 'glm':
+      return executeGlm(config, prompt, context)
     default:
       throw new Error(`Unsupported provider: ${config.provider}`)
   }
@@ -169,6 +171,46 @@ async function executeGroq(config: LLMConfig, prompt: string, context?: string):
   }
 }
 
+async function executeGlm(config: LLMConfig, prompt: string, context?: string): Promise<LLMResponse> {
+  const apiKey = config.apiKey || process.env.GLM_API_KEY
+  if (!apiKey) throw new Error('GLM API key not configured')
+
+  const messages: any[] = []
+  if (config.systemPrompt || context) {
+    messages.push({
+      role: 'system',
+      content: [config.systemPrompt, context].filter(Boolean).join('\n\nContexto: '),
+    })
+  }
+  messages.push({ role: 'user', content: prompt })
+
+  const baseUrl = (process.env.GLM_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4').replace(/\/$/, '')
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model || 'glm-4.5-air',
+      messages,
+      temperature: config.temperature ?? 0.7,
+      max_tokens: config.maxTokens ?? 1024,
+    }),
+  })
+
+  const data = await response.json()
+  if (!response.ok) throw new Error(`GLM error: ${data.error?.message || data.message || response.statusText}`)
+
+  return {
+    text: data.choices?.[0]?.message?.content || '',
+    usage: {
+      promptTokens: data.usage?.prompt_tokens ?? 0,
+      completionTokens: data.usage?.completion_tokens ?? 0,
+    },
+  }
+}
+
 export const AVAILABLE_MODELS: Record<LLMProvider, { id: string; name: string }[]> = {
   gemini: [
     { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash' },
@@ -191,6 +233,11 @@ export const AVAILABLE_MODELS: Record<LLMProvider, { id: string; name: string }[
     { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
     { id: 'gemma2-9b-it', name: 'Gemma 2 9B' },
     { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 70B' },
+  ],
+  glm: [
+    { id: 'glm-4.5-air', name: 'GLM 4.5 Air' },
+    { id: 'glm-4.5', name: 'GLM 4.5' },
+    { id: 'glm-4-air', name: 'GLM 4 Air' },
   ],
   custom: [
     { id: 'custom', name: 'Custom endpoint' },

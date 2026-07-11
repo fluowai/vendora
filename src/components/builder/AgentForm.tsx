@@ -60,6 +60,7 @@ const providers = [
   { id: "openai", label: "ChatGPT / OpenAI", hint: "GPT-4o e GPT-4o mini" },
   { id: "anthropic", label: "Anthropic Claude", hint: "Analise e seguranca" },
   { id: "gemini", label: "Google Gemini", hint: "Opcao Google" },
+  { id: "glm", label: "GLM", hint: "Zhipu GLM como opcao extra" },
 ]
 
 const providerModels: Record<string, { id: string; label: string; hint: string }[]> = {
@@ -81,6 +82,11 @@ const providerModels: Record<string, { id: string; label: string; hint: string }
     { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", hint: "Padrao antigo" },
     { id: "gemini-3-pro-preview", label: "Gemini 3 Pro", hint: "Mais capacidade" },
     { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", hint: "Compatibilidade" },
+  ],
+  glm: [
+    { id: "glm-4.5-air", label: "GLM 4.5 Air", hint: "Rapido e economico" },
+    { id: "glm-4.5", label: "GLM 4.5", hint: "Mais capacidade" },
+    { id: "glm-4-air", label: "GLM 4 Air", hint: "Compatibilidade" },
   ],
 }
 

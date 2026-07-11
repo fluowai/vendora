@@ -90,6 +90,16 @@ describe("requirePermission", () => {
     expect(getStatus()).toBe(200);
   });
 
+  it("should allow write access when the user has manage permission", async () => {
+    const { req, res, next, getStatus } = mockReqRes({
+      userId: TEST_USER_ID,
+      isSuperadmin: false,
+    });
+
+    await requirePermission("tickets", "write")(req, res, next);
+    expect(getStatus()).toBe(200);
+  });
+
   it("should deny access when user lacks the required permission", async () => {
     const { req, res, next, getStatus, getBody } = mockReqRes({
       userId: TEST_USER_ID,
@@ -98,7 +108,7 @@ describe("requirePermission", () => {
 
     await requirePermission("settings", "write")(req, res, next);
     expect(getStatus()).toBe(403);
-    expect(getBody()).toEqual({ error: "Acesso negado: permissão necessária" });
+    expect(getBody()).toEqual({ error: "Acesso negado: permissao necessaria" });
   });
 
   it("should allow superadmin regardless of permissions", async () => {
@@ -116,7 +126,7 @@ describe("requirePermission", () => {
 
     await requirePermission("reports", "read")(req, res, next);
     expect(getStatus()).toBe(401);
-    expect(getBody()).toEqual({ error: "Autenticação necessária" });
+    expect(getBody()).toEqual({ error: "Autenticacao necessaria" });
   });
 });
 

@@ -8,6 +8,7 @@ describe("LLM Providers", () => {
     expect(AVAILABLE_MODELS.openai).toBeDefined();
     expect(AVAILABLE_MODELS.anthropic).toBeDefined();
     expect(AVAILABLE_MODELS.groq).toBeDefined();
+    expect(AVAILABLE_MODELS.glm).toBeDefined();
     expect(AVAILABLE_MODELS.custom).toBeDefined();
   });
 
@@ -31,5 +32,10 @@ describe("LLM Providers", () => {
   it("should throw on unsupported provider", async () => {
     const { executeLLM } = await import("../../server/lib/providers");
     await expect(executeLLM({ provider: "unknown" as any, model: "test" }, "hello")).rejects.toThrow("Unsupported provider");
+  });
+
+  it("should reject glm without API key", async () => {
+    const { executeLLM } = await import("../../server/lib/providers");
+    await expect(executeLLM({ provider: "glm", model: "glm-4.5-air", apiKey: "" }, "hello")).rejects.toThrow("GLM API key not configured");
   });
 });

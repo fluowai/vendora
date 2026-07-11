@@ -29,18 +29,29 @@ function clearPermissionCache(userId: string) {
 function requirePermission(action: string, subject: string) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      if (req.user?.isSuperadmin || req.user?.platformRole === "mega_admin" || req.user?.platformRole === "support") { next(); return; }
-      if (!req.user) { res.status(401).json({ error: "Autenticação necessária" }); return; }
+      if (req.user?.isSuperadmin || req.user?.platformRole === "mega_admin" || req.user?.platformRole === "support") {
+        next();
+        return;
+      }
+      if (!req.user) {
+        res.status(401).json({ error: "Autenticacao necessaria" });
+        return;
+      }
 
       const permissions = await getUserPermissions(req.user.userId);
-      if (!permissions.includes(`${action}:${subject}`)) {
-        res.status(403).json({ error: "Acesso negado: permissão necessária" });
+      const requiredPermission = `${action}:${subject}`;
+      const managePermission = `${action}:manage`;
+      const hasPermission = permissions.includes(requiredPermission)
+        || (subject !== "manage" && permissions.includes(managePermission));
+
+      if (!hasPermission) {
+        res.status(403).json({ error: "Acesso negado: permissao necessaria" });
         return;
       }
       next();
     } catch (error) {
       logger.error("Permission check error", { error });
-      res.status(500).json({ error: "Erro ao verificar permissões" });
+      res.status(500).json({ error: "Erro ao verificar permissoes" });
     }
   };
 }
