@@ -12,5 +12,8 @@ coverage/
 *.exe~
 *.err
 wacalls/
-wacalls-server/
+wacalls-server/*
+!wacalls-server/
+!wacalls-server/Dockerfile
+!wacalls-server/go.mod
 uploads/
