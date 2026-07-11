@@ -68,6 +68,7 @@ export async function addMessageJob(data: {
       const conversation = await prisma.conversation.findFirst({
         where: { id: data.conversationId, tenantId: data.tenantId },
         include: {
+          channelInstance: true,
           contact: { include: { identities: true } },
           messages: { orderBy: { sentAt: "asc" }, take: 30 },
         },
@@ -271,9 +272,11 @@ export function setupWorkers() {
       });
       if (!conversation) throw new Error("Conversa nao encontrada");
 
-      const session = conversation.channelInstance?.name || "default";
+      const instanceConfig = (conversation.channelInstance?.config || {}) as any;
+      const session = instanceConfig.sessionName || instanceConfig.sessionId || conversation.channelInstance?.name || "default";
+      const phoneDigits = String(conversation.contact?.phone || "").replace(/\D/g, "");
       const chatId = conversation.contact?.identities?.find((i: any) => i.provider === "wahaplus")?.externalId
-        || conversation.contact?.phone;
+        || (phoneDigits.length >= 10 ? `${phoneDigits}@c.us` : null);
       if (!chatId) throw new Error("Destino nao encontrado");
 
       if (effectiveMediaUrl) {

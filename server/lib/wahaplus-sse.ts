@@ -1,5 +1,6 @@
 import prisma from "./prisma.ts";
 import { getIO } from "./socket.ts";
+import { emitToConversation } from "./socket.ts";
 import { logger } from "./logger.ts";
 import { preferredCallPeer, normalizePhoneForCall } from "./phone.ts";
 import { addMessageJob } from "./queue.ts";
@@ -286,21 +287,55 @@ export class WahaplusSSEBridge {
   private async persistIncomingMessage(data: any) {
     try {
       const payload = data.payload || data;
-      const sessionName = data.session || payload.session || "default";
-      const from = payload.from || "";
-      const text = typeof payload.text === "string" ? payload.text : payload.text?.body || payload.body || "";
-      const messageId = payload.id || "";
-      const messageType = payload.type || "chat";
+      const sessionName = data.sessionId || data.session || payload.session || payload.sessionId || "default";
+      const from = payload.fromMe
+        ? (payload.to || payload.chatId || payload.remoteJid || "")
+        : (payload.from || payload.chatId || payload.remoteJid || "");
+      const chatId = payload.chatId || payload.remoteJid || payload.from || from;
+      const text = typeof payload.text === "string"
+        ? payload.text
+        : payload.text?.body || payload.body || payload.message?.text || payload.message?.conversation || payload.caption || "";
+      const messageId = payload.id || payload.messageId || payload.key?.id || "";
+      const messageType = payload.type || payload.messageType || "chat";
 
       if (!from || !text) return;
 
-      const phone = from.replace(/@.+$/, "").replace(/\D/g, "");
+      const phone = String(chatId || from).replace(/@.+$/, "").replace(/\D/g, "");
       const pushName = payload.pushName || payload.sender?.pushName || "";
 
-      const tenant = await prisma.tenant.findFirst();
+      const instances = await prisma.channelInstance.findMany({
+        where: { channel: { provider: "wahaplus" } },
+        include: { channel: true },
+      });
+      const channelInstance = instances.find((instance) => {
+        const config = (instance.config || {}) as any;
+        return instance.name === sessionName || config.sessionName === sessionName || config.sessionId === sessionName;
+      }) || instances[0] || null;
+
+      const tenant = channelInstance?.channel?.tenantId
+        ? await prisma.tenant.findUnique({ where: { id: channelInstance.channel.tenantId } })
+        : await prisma.tenant.findFirst();
       if (!tenant) return;
 
-      let contact = phone ? await this.findContactByPhone(phone) : null;
+      let contactIdentity = chatId
+        ? await prisma.contactIdentity.findFirst({
+            where: { tenantId: tenant.id, provider: "wahaplus", externalId: String(chatId) },
+            include: { contact: true },
+          })
+        : null;
+      let contact = contactIdentity?.contact || (phone
+        ? await prisma.contact.findFirst({
+            where: {
+              tenantId: tenant.id,
+              OR: [
+                { phone },
+                { phone: { contains: phone } },
+                ...(phone.length >= 8 ? [{ phone: { contains: phone.slice(-8) } }] : []),
+              ],
+            },
+            orderBy: { updatedAt: "desc" },
+          })
+        : null);
       if (!contact) {
         contact = await prisma.contact.create({
           data: {
@@ -313,7 +348,22 @@ export class WahaplusSSEBridge {
         });
       }
 
-      const channel = await prisma.channel.upsert({
+      if (chatId && !contactIdentity) {
+        await prisma.contactIdentity.create({
+          data: {
+            tenantId: tenant.id,
+            contactId: contact.id,
+            channel: "wahaplus",
+            provider: "wahaplus",
+            externalId: String(chatId),
+            username: pushName || null,
+            phone: phone || null,
+            metadata: { sessionName, rawFrom: from },
+          },
+        });
+      }
+
+      const channel = channelInstance?.channel || await prisma.channel.upsert({
         where: { id: `${tenant.id}-wahaplus` },
         update: { status: "active" },
         create: {
@@ -325,22 +375,32 @@ export class WahaplusSSEBridge {
         },
       });
 
-      const channelInstance = await prisma.channelInstance.findFirst({
+      const instance = channelInstance || await prisma.channelInstance.findFirst({
         where: { channelId: channel.id, status: "active" },
       }) || await prisma.channelInstance.create({
-        data: { channelId: channel.id, name: sessionName || "WAHAPlus principal", status: "active" },
+        data: {
+          channelId: channel.id,
+          name: sessionName || "WAHAPlus principal",
+          status: "active",
+          config: { sessionName },
+        },
       });
 
-      const conversationId = `${tenant.id}-wahaplus-${phone || from}`;
       const now = new Date();
-      const conversation = await prisma.conversation.upsert({
-        where: { id: conversationId },
-        update: { lastMessageAt: now },
-        create: {
-          id: conversationId,
+      const conversation = await prisma.conversation.findFirst({
+        where: {
           tenantId: tenant.id,
           contactId: contact.id,
-          channelInstanceId: channelInstance.id,
+          channelInstanceId: instance.id,
+          channel: "wahaplus",
+          status: { not: "closed" },
+        },
+        orderBy: { updatedAt: "desc" },
+      }) || await prisma.conversation.create({
+        data: {
+          tenantId: tenant.id,
+          contactId: contact.id,
+          channelInstanceId: instance.id,
           channel: "wahaplus",
           status: "active",
           aiEnabled: true,
@@ -366,12 +426,53 @@ export class WahaplusSSEBridge {
           providerMessageId: messageId || null,
           messageType: messageType === "chat" ? "text" : messageType || "text",
           content: text,
+          metadata: {
+            event: "wahaplus.message",
+            sessionName,
+            chatId,
+            remoteJid: chatId,
+            senderName: pushName,
+            senderPhone: phone,
+            raw: payload,
+          },
           sentAt: now,
         },
       });
 
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessageAt: now },
+      });
+
+      emitToConversation(conversation.id, "message:new", {
+        conversationId: conversation.id,
+        message: {
+          id: message.id,
+          senderType: message.senderType,
+          senderId: message.senderId,
+          role: "user",
+          channel: message.channel,
+          messageType: message.messageType,
+          content: message.content,
+          metadata: message.metadata,
+          sentAt: message.sentAt,
+          createdAt: message.createdAt,
+        },
+      });
+
       getIO().to(`tenant:${tenant.id}`).emit("conversation:updated", {
+        conversationId: conversation.id,
         id: conversation.id,
+        name: contact.name,
+        phone: contact.phone,
+        channel: "wahaplus",
+        instance: {
+          id: instance.id,
+          name: instance.name,
+          status: instance.status,
+          channelName: channel.name,
+          provider: channel.provider,
+        },
         lastMessage: message.content,
         lastMessageAt: message.sentAt,
         time: message.sentAt,

@@ -36,6 +36,15 @@ function getWhatsmeowBridgeUrl() {
   return getWhatsmeowCandidateUrls()[0] || "";
 }
 
+function whatsmeowMultiInstanceEnabled() {
+  return ["1", "true", "yes", "on"].includes(String(process.env.WHATSMEOW_MULTI_INSTANCE || "").toLowerCase());
+}
+
+function whatsmeowSingleBridgeMessage(total?: number) {
+  const suffix = total && total > 1 ? ` Foram encontradas ${total} conexoes cadastradas para o mesmo tenant.` : "";
+  return `WooTech IA 1 usa um whatsmeow-bridge single-session nesta stack. Ele permite somente uma conexao WhatsApp por tenant. Remova conexoes duplicadas ou use WooTech IA 2 (WAHA+) para multiplas sessoes.${suffix}`;
+}
+
 function getWhatsmeowHeaders() {
   return {
     "Content-Type": "application/json",
@@ -354,6 +363,113 @@ function stableId(...parts: string[]) {
     .replace(/[^a-z0-9-_]/g, "-")
     .replace(/-+/g, "-")
     .slice(0, 180);
+}
+
+async function getWhatsmeowTenantInstances(tenantId: string) {
+  return prisma.channelInstance.findMany({
+    where: {
+      channel: { tenantId, provider: "whatsmeow" },
+    },
+    include: { channel: true },
+    orderBy: [
+      { status: "asc" },
+      { name: "asc" },
+      { id: "asc" },
+    ],
+  });
+}
+
+async function resolveWhatsmeowBridgeOwner(instance: any) {
+  if (whatsmeowMultiInstanceEnabled()) {
+    return { allowed: true, total: 1, owner: instance, error: "" };
+  }
+
+  const tenantId = instance?.channel?.tenantId;
+  if (!tenantId) {
+    return { allowed: true, total: 1, owner: instance, error: "" };
+  }
+
+  const instances = await getWhatsmeowTenantInstances(tenantId);
+  if (instances.length <= 1) {
+    return { allowed: true, total: instances.length, owner: instance, error: "" };
+  }
+
+  const owner = instances.find((item) => item.status === "connected") || instances[0];
+  if (owner.id === instance.id) {
+    return { allowed: true, total: instances.length, owner, error: "" };
+  }
+
+  return {
+    allowed: false,
+    total: instances.length,
+    owner,
+    error: whatsmeowSingleBridgeMessage(instances.length),
+  };
+}
+
+async function ensureWahaplusSessionInstance(input: {
+  tenantId: string
+  sessionName: string
+  baseUrl?: string
+  status?: string
+}) {
+  const channelId = stableId(input.tenantId, "wahaplus");
+  const channel = await prisma.channel.upsert({
+    where: { id: channelId },
+    update: {
+      name: "WAHA+",
+      provider: "wahaplus",
+      status: "active",
+    },
+    create: {
+      id: channelId,
+      tenantId: input.tenantId,
+      name: "WAHA+",
+      provider: "wahaplus",
+      status: "active",
+    },
+  });
+
+  const existing = await prisma.channelInstance.findFirst({
+    where: {
+      channelId: channel.id,
+      OR: [
+        { name: input.sessionName },
+        { config: { path: ["sessionName"], equals: input.sessionName } },
+        { config: { path: ["sessionId"], equals: input.sessionName } },
+      ],
+    },
+  });
+
+  const config = {
+    sessionName: input.sessionName,
+    sessionId: input.sessionName,
+    baseUrl: input.baseUrl || getWahaplusCandidateUrls()[0] || null,
+    webhookPath: "/api/integrations/wahaplus/incoming",
+    engineMode: "multi-session",
+    lastStatusAt: new Date().toISOString(),
+  };
+
+  if (existing) {
+    return prisma.channelInstance.update({
+      where: { id: existing.id },
+      data: {
+        status: input.status || existing.status,
+        config: { ...((existing.config || {}) as any), ...config },
+      },
+      include: { channel: true },
+    });
+  }
+
+  return prisma.channelInstance.create({
+    data: {
+      channelId: channel.id,
+      name: input.sessionName,
+      status: input.status || "active",
+      config,
+    },
+    include: { channel: true },
+  });
 }
 
 async function getOrCreateProviderInstance(tenantId: string, provider: string, name: string) {
@@ -943,6 +1059,33 @@ router.post("/connections",
       email: "Email",
     };
 
+    if (provider === "whatsmeow" && !whatsmeowMultiInstanceEnabled()) {
+      const existing = await prisma.channelInstance.findFirst({
+        where: { channel: { tenantId, provider: "whatsmeow" } },
+        include: { channel: true },
+        orderBy: [
+          { status: "asc" },
+          { name: "asc" },
+          { id: "asc" },
+        ],
+      });
+
+      if (existing) {
+        const existingConfig = (existing.config || {}) as any;
+        res.status(409).json({
+          error: whatsmeowSingleBridgeMessage(),
+          existingConnection: {
+            id: existing.id,
+            name: existing.name,
+            status: existing.status,
+            qrPath: existingConfig.qrPath || `/api/integrations/whatsmeow/instances/${existing.id}/qr`,
+            statusPath: existingConfig.statusPath || `/api/integrations/whatsmeow/instances/${existing.id}/status`,
+          },
+        });
+        return;
+      }
+    }
+
     const channel = await prisma.channel.upsert({
       where: { id: channelId },
       update: {
@@ -973,6 +1116,7 @@ router.post("/connections",
     const baseUrl = process.env.API_URL || `${req.protocol}://${req.get("host")}`;
     const instanceConfig = {
       ...(config || {}),
+      engineMode: provider === "whatsmeow" && !whatsmeowMultiInstanceEnabled() ? "single-bridge" : "multi-session",
       webhookUrl: `${baseUrl}/api/integrations/${provider}/incoming?tenantId=${tenantId}&instanceId=${instance.id}`,
       qrPath: provider === "whatsmeow" ? `/api/integrations/whatsmeow/instances/${instance.id}/qr` : null,
       statusPath: provider === "whatsmeow" ? `/api/integrations/whatsmeow/instances/${instance.id}/status` : null,
@@ -1035,7 +1179,10 @@ router.delete("/connections/:id",
 
     let bridgeError: string | null = null;
     if (instance.channel.provider === "whatsmeow") {
-      if (!getWhatsmeowBridgeUrl()) {
+      const ownership = await resolveWhatsmeowBridgeOwner(instance);
+      if (!ownership.allowed) {
+        bridgeError = ownership.error;
+      } else if (!getWhatsmeowBridgeUrl()) {
         bridgeError = "WHATSMEOW_BRIDGE_URL nao configurado";
       } else {
         try {
@@ -1287,6 +1434,19 @@ router.get("/whatsmeow/instances/:id/status",
     const instance = await assertInstanceAccess(req, res);
     if (!instance) return;
 
+    const ownership = await resolveWhatsmeowBridgeOwner(instance);
+    if (!ownership.allowed) {
+      res.json({
+        connected: false,
+        bridgeAvailable: false,
+        unsupported: true,
+        instanceId: instance.id,
+        bridgeOwnerInstanceId: ownership.owner?.id || null,
+        error: ownership.error,
+      });
+      return;
+    }
+
     const bridgeUrl = getWhatsmeowBridgeUrl();
     if (!bridgeUrl) {
       res.json({ connected: false, bridgeAvailable: false, error: "WHATSMEOW_BRIDGE_URL não configurado" });
@@ -1342,6 +1502,20 @@ router.get("/whatsmeow/instances/:id/qr",
     const instance = await assertInstanceAccess(req, res);
     if (!instance) return;
 
+    const ownership = await resolveWhatsmeowBridgeOwner(instance);
+    if (!ownership.allowed) {
+      res.json({
+        connected: false,
+        bridgeAvailable: false,
+        unsupported: true,
+        qr: null,
+        instanceId: instance.id,
+        bridgeOwnerInstanceId: ownership.owner?.id || null,
+        error: ownership.error,
+      });
+      return;
+    }
+
     const bridgeUrl = getWhatsmeowBridgeUrl();
     if (!bridgeUrl) {
       res.json({ connected: false, bridgeAvailable: false, qr: null, error: "WHATSMEOW_BRIDGE_URL não configurado" });
@@ -1379,6 +1553,24 @@ router.post("/whatsmeow/instances/:id/logout",
   async (req: Request, res: Response) => {
     const instance = await assertInstanceAccess(req, res);
     if (!instance) return;
+
+    const ownership = await resolveWhatsmeowBridgeOwner(instance);
+    if (!ownership.allowed) {
+      await prisma.channelInstance.update({
+        where: { id: instance.id },
+        data: { status: "disconnected" },
+      });
+      res.json({
+        success: true,
+        connected: false,
+        bridgeAvailable: false,
+        unsupported: true,
+        instanceId: instance.id,
+        bridgeOwnerInstanceId: ownership.owner?.id || null,
+        error: ownership.error,
+      });
+      return;
+    }
 
     const bridgeUrl = getWhatsmeowBridgeUrl();
     if (!bridgeUrl) {
@@ -1813,6 +2005,145 @@ router.post("/whatsapp-cloud/send/template", whatsappSendLimiter, async (req: Re
   }
 });
 
+router.post("/wahaplus/incoming", webhookLimiter, async (req: Request, res: Response) => {
+  if (!assertWebhookSecret(req, res, process.env.WAHAPLUS_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET || "")) return;
+
+  const payload = req.body?.payload || req.body?.data || req.body;
+  const sessionName = asString(req.body?.session || req.body?.sessionId || payload?.session || payload?.sessionId || "default");
+  const fromMe = payload?.fromMe === true || payload?.key?.fromMe === true || req.body?.fromMe === true;
+  if (fromMe) {
+    res.status(202).json({ accepted: true, skipped: "fromMe" });
+    return;
+  }
+
+  let tenantId = asString(req.headers["x-tenant-id"] || req.query.tenantId || req.body.tenantId || payload?.tenantId);
+  let instance = tenantId
+    ? await prisma.channelInstance.findFirst({
+        where: {
+          channel: { tenantId, provider: "wahaplus" },
+          OR: [
+            { name: sessionName },
+            { config: { path: ["sessionName"], equals: sessionName } },
+            { config: { path: ["sessionId"], equals: sessionName } },
+          ],
+        },
+        include: { channel: true },
+      })
+    : null;
+
+  if (!tenantId) {
+    instance = await prisma.channelInstance.findFirst({
+      where: {
+        channel: { provider: "wahaplus" },
+        OR: [
+          { name: sessionName },
+          { config: { path: ["sessionName"], equals: sessionName } },
+          { config: { path: ["sessionId"], equals: sessionName } },
+        ],
+      },
+      include: { channel: true },
+    });
+    tenantId = instance?.channel?.tenantId || "";
+  }
+
+  if (!tenantId) {
+    res.status(400).json({ error: "tenantId obrigatorio para webhook WAHA+" });
+    return;
+  }
+
+  if (!instance) {
+    instance = await ensureWahaplusSessionInstance({
+      tenantId,
+      sessionName,
+      status: "active",
+    });
+  }
+
+  const chatId = firstJid(
+    payload?.chatId,
+    payload?.remoteJid,
+    payload?.from,
+    payload?.key?.remoteJid,
+    req.body?.chatId,
+    req.body?.from,
+  );
+  const rawFrom = asString(chatId || payload?.from || payload?.chatId || "");
+  const phone = phoneFromJids(rawFrom) || rawFrom.replace(/@.+$/, "").replace(/\D/g, "");
+  const pushName = asString(payload?.pushName || payload?.sender?.pushName || payload?.contact?.name || payload?.notifyName);
+  const messageId = asString(payload?.id || payload?.messageId || payload?.key?.id || req.body?.id);
+  const messageType = asString(payload?.type || payload?.messageType || req.body?.event || "text");
+  const text = asString(
+    payload?.text?.body
+    || payload?.text
+    || payload?.body
+    || payload?.message?.conversation
+    || payload?.message?.extendedTextMessage?.text
+    || payload?.caption
+    || "",
+  );
+  const hasMedia = !!(payload?.media || payload?.mediaUrl || payload?.file || payload?.image || payload?.video || payload?.audio || payload?.document);
+  const content = text || (hasMedia ? `[${messageType}]` : "");
+  if (!rawFrom || !content) {
+    res.status(202).json({ accepted: true, skipped: "empty" });
+    return;
+  }
+
+  const { conversation, contact, channelInstance, message, isNewMessage, isNewConversation } = await materializeIncomingMessage({
+    tenantId,
+    provider: "wahaplus",
+    providerName: "WAHA+",
+    instanceId: instance.id,
+    externalConversationId: rawFrom,
+    externalConversationAliases: uniqueStrings([rawFrom, chatId, phone]),
+    externalMessageId: messageId,
+    contactExternalId: rawFrom,
+    contactPayload: {
+      name: pushName || phone || rawFrom,
+      phone: phone || null,
+      pushName: pushName || null,
+      aliasExternalIds: uniqueStrings([rawFrom, chatId, phone]),
+      raw: payload,
+    },
+    content,
+    senderType: "contact",
+    messageType: messageType === "chat" ? "text" : messageType,
+    metadata: {
+      event: "wahaplus.message",
+      sessionName,
+      chatId: rawFrom,
+      remoteJid: rawFrom,
+      senderName: pushName,
+      senderPhone: phone,
+      hasMedia,
+      raw: payload,
+    },
+  });
+
+  if (isNewMessage && message?.senderType === "contact") {
+    emitIncomingRealtime({
+      tenantId,
+      conversation,
+      contact,
+      channelInstance,
+      message,
+      isNewConversation,
+    });
+
+    void addMessageJob({
+      type: "incoming",
+      tenantId,
+      conversationId: conversation.id,
+      messageId: message.id,
+    }).catch((error) => logger.error("[Pipeline] wahaplus incoming failed", { error }));
+  }
+
+  res.status(202).json({
+    accepted: true,
+    conversationId: conversation.id,
+    messageId: message?.id || null,
+  });
+});
+
 // ============================================================
 // WAHA+ robust routes (stack-aware)
 // ============================================================
@@ -1849,7 +2180,10 @@ router.get("/wahaplus/sessions", async (_req: Request, res: Response) => {
   }
 });
 
-router.post("/wahaplus/sessions", async (req: Request, res: Response) => {
+router.post("/wahaplus/sessions",
+  authMiddleware,
+  requirePermission("channels", "manage"),
+  async (req: Request, res: Response) => {
   const { name } = req.body;
   if (!name) {
     res.status(400).json({ error: "name obrigatorio" });
@@ -1865,19 +2199,57 @@ router.post("/wahaplus/sessions", async (req: Request, res: Response) => {
       `/api/sessions/${encodeURIComponent(name)}/start`,
       `/api/${encodeURIComponent(name)}/start`,
     ], { method: "POST" }, 5000).catch(() => null);
-    res.status(response.status).json({ ...data, name: data?.name || name, url: baseUrl });
+    const sessionName = data?.name || data?.id || name;
+    const instance = await ensureWahaplusSessionInstance({
+      tenantId: req.user!.tenantId,
+      sessionName,
+      baseUrl,
+      status: "active",
+    });
+    res.status(response.status).json({
+      ...data,
+      name: sessionName,
+      id: sessionName,
+      url: baseUrl,
+      connection: {
+        id: instance.id,
+        name: instance.name,
+        status: instance.status,
+        config: instance.config,
+        channel: instance.channel,
+      },
+    });
   } catch (error: any) {
     res.status(503).json({ error: error.message || "WAHA+ indisponivel" });
   }
 });
 
-router.delete("/wahaplus/sessions/:sid", async (req: Request, res: Response) => {
+router.delete("/wahaplus/sessions/:sid",
+  authMiddleware,
+  requirePermission("channels", "manage"),
+  async (req: Request, res: Response) => {
   try {
     const sid = encodeURIComponent(req.params.sid);
     const { response } = await fetchFirstWahaplus([
       `/api/sessions/${sid}`,
       `/api/${sid}/logout`,
     ], { method: "DELETE" });
+    const instance = await prisma.channelInstance.findFirst({
+      where: {
+        channel: { tenantId: req.user!.tenantId, provider: "wahaplus" },
+        OR: [
+          { name: req.params.sid },
+          { config: { path: ["sessionName"], equals: req.params.sid } },
+          { config: { path: ["sessionId"], equals: req.params.sid } },
+        ],
+      },
+    });
+    if (instance) {
+      await prisma.channelInstance.update({
+        where: { id: instance.id },
+        data: { status: "disconnected" },
+      });
+    }
     res.status(response.status).end();
   } catch (error: any) {
     res.status(503).json({ error: error.message || "WAHA+ indisponivel" });

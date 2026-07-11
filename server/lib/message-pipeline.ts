@@ -5,6 +5,7 @@ import { checkHandoff, routeMessage } from "./intent-router.ts";
 import { orchestrateWithAgents } from "./orchestrator.ts";
 import { executeFlow, findActiveMessageFlow, findWaitingRun } from "./flow-engine.ts";
 import { emitToConversation, emitToTenant } from "./socket.ts";
+import { getWahaplusCandidateUrls } from "./wahaplus-client.ts";
 
 function getWhatsmeowBridgeUrl() {
   return (process.env.WHATSMEOW_BRIDGE_URL || "").replace(/\/$/, "");
@@ -80,6 +81,11 @@ function phoneToWhatsAppJid(value?: string | null) {
   return phone.length >= 10 ? `${phone}@s.whatsapp.net` : null;
 }
 
+function phoneToWahaChatId(value?: string | null) {
+  const phone = String(value || "").replace(/\D/g, "");
+  return phone.length >= 10 ? `${phone}@c.us` : null;
+}
+
 function getRemoteJid(conversation: any): string | null {
   const messageWithRemote = conversation.messages
     ?.slice()
@@ -100,6 +106,26 @@ function getRemoteJid(conversation: any): string | null {
     || phoneToWhatsAppJid(conversation.contact?.phone)
     || fallbackLid
     || null;
+}
+
+function getWahaplusChatId(conversation: any): string | null {
+  const messageWithRemote = conversation.messages
+    ?.slice()
+    .reverse()
+    .find((message: any) => message.metadata?.chatId || message.metadata?.remoteJid || message.metadata?.chatJid);
+  const metadata = messageWithRemote?.metadata || {};
+  return metadata.chatId
+    || metadata.remoteJid
+    || metadata.chatJid
+    || conversation.contact?.identities?.find((identity: any) => identity.provider === "wahaplus")?.externalId
+    || phoneToWahaChatId(conversation.contact?.phone)
+    || conversation.contact?.phone
+    || null;
+}
+
+function getWahaplusSession(conversation: any): string {
+  const config = (conversation.channelInstance?.config || {}) as any;
+  return config.sessionName || config.sessionId || conversation.channelInstance?.name || "default";
 }
 
 async function sendTypingIndicator(remoteJid: string, state: string) {
@@ -123,8 +149,50 @@ export async function sendViaChannel(conversation: any, content: string, media?:
   mediaMimeType?: string
   mediaName?: string
 }) {
-  if (conversation.channel !== "whatsmeow") {
+  if (conversation.channel !== "whatsmeow" && conversation.channel !== "wahaplus") {
     return { skipped: true, reason: "Canal sem envio externo configurado" };
+  }
+
+  if (conversation.channel === "wahaplus") {
+    const candidateUrls = getWahaplusCandidateUrls();
+    if (candidateUrls.length === 0) {
+      return { skipped: true, reason: "WAHAPLUS_URL nao configurado" };
+    }
+
+    const session = getWahaplusSession(conversation);
+    const chatId = getWahaplusChatId(conversation);
+    if (!chatId) {
+      return { skipped: true, reason: "Destino WAHA+ nao encontrado" };
+    }
+
+    const hasMedia = !!media?.mediaUrl;
+    let lastError: any = null;
+    for (const baseUrl of candidateUrls) {
+      try {
+        const response = await fetch(`${baseUrl}${hasMedia ? "/api/sendFile" : "/api/sendText"}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(hasMedia
+            ? {
+                session,
+                chatId,
+                file: media.mediaUrl,
+                caption: content,
+              }
+            : { session, chatId, text: content }),
+          signal: AbortSignal.timeout(7000),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || data.message || `Falha ao enviar WAHA+: ${response.status}`);
+        }
+        return data;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error("WAHA+ indisponivel");
   }
 
   const bridgeUrl = getWhatsmeowBridgeUrl();
@@ -175,6 +243,7 @@ export async function processIncomingMessage(input: {
       tenantId: input.tenantId,
     },
     include: {
+      channelInstance: true,
       contact: { include: { identities: true } },
       messages: { orderBy: { sentAt: "asc" }, take: 30 },
     },

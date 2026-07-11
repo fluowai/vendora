@@ -51,17 +51,19 @@ services:
       - "ENABLE_EMBEDDED_WACALLS=false"
       - "ENABLE_EMBEDDED_WAHAPLUS=false"
       - "VOICE_GATEWAY=wacalls"
-      - "WACALLS_URL=http://wacalls:8081"
+      - "WACALLS_URL=http://vendedoraai_wacalls:8081"
       - "WACALLS_PORT=8081"
       - "WACALLS_DB_PATH=/data/wacalls.db"
       - "WAHAPLUS_URL=http://vendedoraai_wahaplus:3000"
       - "WAHAPLUS_PORT=3000"
       - "WAHAPLUS_IMAGE=devlikeapro/waha"
       - "WAHAPLUS_LICENSE="
+      - "WAHAPLUS_WEBHOOK_SECRET="
       - "WHATSMEOW_BRIDGE_URL=http://whatsmeow-bridge:4000"
       - "WHATSMEOW_WEBHOOK_URL=http://vendedoraai_api:3333/api/integrations/whatsmeow/incoming?tenantId=seed-tenant"
       - "WHATSMEOW_BRIDGE_SECRET=vendora-whatsmeow-secret-2026"
       - "WHATSMEOW_PAIR_DISPLAY_NAME=Chrome (Windows)"
+      - "WHATSMEOW_MULTI_INSTANCE=false"
       - "DIALER_CALLS_PER_MINUTE=10"
       - "DIALER_DEFAULT_SESSION_ID="
       - "GEMINI_API_KEY="
@@ -185,6 +187,10 @@ services:
     image: ${WAHAPLUS_IMAGE:-devlikeapro/waha}
     environment:
       - "WAHA_LICENSE_KEY=${WAHAPLUS_LICENSE:-}"
+      - "WAHA_WEBHOOK_URL=http://vendedoraai_api:3333/api/integrations/wahaplus/incoming"
+      - "WAHA_WEBHOOK_EVENTS=message,message.any"
+      - "WHATSAPP_HOOK_URL=http://vendedoraai_api:3333/api/integrations/wahaplus/incoming"
+      - "WHATSAPP_HOOK_EVENTS=message"
     volumes:
       - wahaplus_data:/app/.sessions
       - wahaplus_data:/app/.media

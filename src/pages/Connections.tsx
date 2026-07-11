@@ -40,6 +40,7 @@ export default function Connections() {
   const [wahaplusStatus, setWahaplusStatus] = useState<any>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pairingDeadlineRef = useRef(0);
+  const whatsmeowLimitReached = connections.length > 0;
 
   useEffect(() => {
     load();
@@ -95,6 +96,10 @@ export default function Connections() {
   };
 
   const createInstance = async () => {
+    if (whatsmeowLimitReached) {
+      setError(`WooTech IA 1 permite uma conexao por vez nesta stack. Use a conexao existente ou crie novas sessoes na aba ${ENGINE_TWO_NAME}.`);
+      return;
+    }
     if (!instanceName.trim()) {
       setError("Informe um nome para a conexao");
       return;
@@ -440,7 +445,7 @@ export default function Connections() {
 
             <button
               onClick={createInstance}
-              disabled={saving}
+              disabled={saving || whatsmeowLimitReached}
               className="w-full inline-flex items-center justify-center gap-2 bg-primary text-white rounded-xl px-4 py-3 text-sm font-bold hover:bg-primary/90 disabled:opacity-50 transition-all"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -450,7 +455,9 @@ export default function Connections() {
             <div className="p-4 bg-bg rounded-xl border border-border">
               <p className="text-xs font-bold text-text mb-2">Pareamento</p>
               <p className="text-xs text-muted leading-relaxed">
-                Depois de criar a conexao, o QR Code abre automaticamente. Escaneie com o WhatsApp e aguarde a conexao.
+                {whatsmeowLimitReached
+                  ? `WooTech IA 1 usa um bridge single-session. Para varias conexoes simultaneas, use a aba ${ENGINE_TWO_NAME}.`
+                  : "Depois de criar a conexao, o QR Code abre automaticamente. Escaneie com o WhatsApp e aguarde a conexao."}
               </p>
             </div>
           </section>
