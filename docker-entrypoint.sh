@@ -16,6 +16,12 @@ else
   echo "[Entrypoint] Skipping database migrations. Set RUN_MIGRATIONS=true to run them."
 fi
 
+if [ "${RUN_DIALER_TABLE_SYNC:-false}" = "true" ]; then
+  echo "[Entrypoint] Ensuring dialer tables..."
+  node scripts/ensure-dialer-tables.mjs
+  echo "[Entrypoint] Dialer tables ready."
+fi
+
 # If WACALLS_URL is not set externally, check if wacalls-server is available
 if [ -z "$WACALLS_URL" ] && [ "${ENABLE_EMBEDDED_WACALLS:-false}" = "true" ]; then
   if command -v wacalls-server >/dev/null 2>&1; then

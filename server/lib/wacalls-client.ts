@@ -1,5 +1,14 @@
-function getBaseUrl(): string {
-  return (process.env.WACALLS_URL || "").replace(/\/$/, "");
+function normalizeBaseUrl(value?: string): string {
+  return (value || "").replace(/\/$/, "").trim();
+}
+
+export function getWacallsCandidateUrls(): string[] {
+  return Array.from(new Set([
+    normalizeBaseUrl(process.env.WACALLS_URL),
+    "http://vendedoraai_wacalls:8081",
+    "http://wacalls:8081",
+    "http://localhost:8081",
+  ].filter(Boolean)));
 }
 
 export type CallDirection = "outbound" | "inbound";
@@ -78,34 +87,48 @@ export class WacallsClientError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, clientId?: string): Promise<T> {
-  const baseUrl = getBaseUrl();
-  if (!baseUrl) {
-    throw new WacallsClientError(503, "WACALLS_URL not configured");
+  const candidateUrls = getWacallsCandidateUrls();
+  if (candidateUrls.length === 0) {
+    throw new WacallsClientError(503, "WACALLS_URL not configured and no Docker alias available");
   }
 
-  const res = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(clientId ? { "X-Client-Id": clientId } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "unknown error");
-    let message = text;
+  let lastError: unknown = null;
+  for (const baseUrl of candidateUrls) {
     try {
-      const parsed = JSON.parse(text);
-      if (typeof parsed?.error === "string") {
-        message = parsed.error;
+      const res = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(clientId ? { "X-Client-Id": clientId } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(7000),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "unknown error");
+        let message = text;
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed?.error === "string") {
+            message = parsed.error;
+          }
+        } catch {}
+        throw new WacallsClientError(res.status, message);
       }
-    } catch {}
-    throw new WacallsClientError(res.status, message);
+
+      if (res.status === 204) return undefined as T;
+      return res.json() as Promise<T>;
+    } catch (error) {
+      if (error instanceof WacallsClientError && error.status < 500) {
+        throw error;
+      }
+      lastError = error;
+    }
   }
 
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  const detail = lastError instanceof Error ? lastError.message : String(lastError || "unknown error");
+  throw new WacallsClientError(503, `WaCalls indisponivel nos aliases da stack (${candidateUrls.join(", ")}): ${detail}`);
 }
 
 export const wacalls = {
@@ -146,7 +169,7 @@ export const wacalls = {
     request<WaContactValidationResponse>("POST", `/api/sessions/${sid}/contacts/validate`, { phones, enrich }, clientId),
 
   eventsUrl: () => {
-    const base = getBaseUrl();
+    const base = getWacallsCandidateUrls()[0] || "";
     return base ? `${base}/api/events` : null;
   },
 };

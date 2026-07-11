@@ -17,6 +17,7 @@ COPY --from=node-builder /app/dist ./dist
 COPY --from=node-builder /app/package*.json ./
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=node-builder /app/prisma ./prisma
+COPY --from=node-builder /app/scripts ./scripts
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN sed -i 's/\r$//' /docker-entrypoint.sh && \
     chmod +x /docker-entrypoint.sh && \

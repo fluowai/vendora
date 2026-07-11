@@ -39,6 +39,7 @@ services:
       - "PORT=3333"
       - "SERVE_STATIC=false"
       - "RUN_MIGRATIONS=false"
+      - "RUN_DIALER_TABLE_SYNC=true"
       - "MIGRATE_DATABASE_URL="
       - "DATABASE_URL=postgresql://postgres.zzipzmxftkisbzcmytkr:WRrSgfupTJ0IUypm@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
       - "REDIS_URL=redis://vendedoraai_redis:6379"
@@ -50,14 +51,14 @@ services:
       - "ENABLE_EMBEDDED_WACALLS=false"
       - "ENABLE_EMBEDDED_WAHAPLUS=false"
       - "VOICE_GATEWAY=wacalls"
-      - "WACALLS_URL="
+      - "WACALLS_URL=http://wacalls:8081"
       - "WACALLS_PORT=8081"
       - "WACALLS_DB_PATH=/data/wacalls.db"
       - "WAHAPLUS_URL=http://vendedoraai_wahaplus:3000"
       - "WAHAPLUS_PORT=3000"
       - "WAHAPLUS_IMAGE=devlikeapro/waha"
       - "WAHAPLUS_LICENSE="
-      - "WHATSMEOW_BRIDGE_URL=http://vendedoraai_whatsmeow-bridge:4000"
+      - "WHATSMEOW_BRIDGE_URL=http://whatsmeow-bridge:4000"
       - "WHATSMEOW_WEBHOOK_URL=http://vendedoraai_api:3333/api/integrations/whatsmeow/incoming?tenantId=seed-tenant"
       - "WHATSMEOW_BRIDGE_SECRET=vendora-whatsmeow-secret-2026"
       - "WHATSMEOW_PAIR_DISPLAY_NAME=Chrome (Windows)"
@@ -204,6 +205,28 @@ services:
         condition: any
         delay: 5s
 
+  wacalls:
+    image: ghcr.io/fluowai/vendora/wacalls-server:latest
+    command: ["-addr", ":8081", "-db", "/data/wacalls.db"]
+    volumes:
+      - wacalls_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/api/sessions"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
+    networks:
+      vendaora_internal:
+        aliases:
+          - wacalls
+          - vendedoraai_wacalls
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 5s
+
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
@@ -230,6 +253,7 @@ volumes:
   redis_data:
   whatsmeow_data:
   wahaplus_data:
+  wacalls_data:
   uploads_data:
 
 networks:

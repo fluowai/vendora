@@ -1,71 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import * as XLSX from "xlsx";
 import {
   AlertCircle,
+  Bot,
   CheckCircle2,
-  Download,
-  FileSpreadsheet,
   Loader2,
-  Phone,
-  Upload,
+  Pause,
+  PhoneCall,
+  Play,
+  RefreshCw,
+  Send,
   XCircle,
 } from "lucide-react";
-import { cn } from "@/src/lib/utils";
 import { api } from "@/src/lib/api";
-import { ENGINE_ONE_NAME } from "@/src/components/BrandLogo";
+import { cn } from "@/src/lib/utils";
+import { ENGINE_ONE_NAME, ENGINE_TWO_NAME } from "@/src/components/BrandLogo";
 
-type ParsedContact = {
+type ContactRow = {
   name?: string
   phone: string
   email?: string
-  metadata?: Record<string, unknown>
 };
 
-type WaSession = {
-  id: string
-  name: string
-  jid: string
-  state: string
-  paired: boolean
-};
-
-type ValidationResult = {
-  input: string
-  phone: string
-  whatsappPhone?: string
-  name?: string
-  email?: string
-  jid?: string
-  lid?: string
-  isOnWhatsApp: boolean
-  pushName?: string
-  businessName?: string
-  avatarUrl?: string
-  photoStatus?: string
-  error?: string
-};
-
-type ValidationResponse = {
-  sessionId: string
-  campaign?: { id: string; name: string } | null
-  saveWarning?: string | null
-  summary: {
-    total: number
-    uniquePhones: number
-    valid: number
-    invalid: number
-    errors: number
-  }
-  results: ValidationResult[]
-};
-
-function authHeaders() {
-  const token = localStorage.getItem("vendaora_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-function normalizePhone(value: unknown) {
-  const digits = String(value || "").replace(/\D/g, "");
+function normalizePhone(value: string) {
+  const digits = value.replace(/\D/g, "");
   if (!digits) return "";
   if ((digits.length === 10 || digits.length === 11) && !digits.startsWith("55")) {
     return `55${digits}`;
@@ -73,464 +30,346 @@ function normalizePhone(value: unknown) {
   return digits;
 }
 
-function looksLikePhone(value: unknown) {
-  const phone = normalizePhone(value);
-  return phone.length >= 10 && phone.length <= 15;
-}
-
-function columnIndex(headers: string[], names: string[]) {
-  return headers.findIndex((header) => names.some((name) => header.includes(name)));
-}
-
-function rowsToContacts(rows: unknown[][]) {
-  const nonEmpty = rows.filter((row) => row.some((cell) => String(cell || "").trim()));
-  if (nonEmpty.length === 0) return [];
-
-  const first = nonEmpty[0].map((cell) => String(cell || "").trim().toLowerCase());
-  const hasHeader = first.some((cell) => ["telefone", "phone", "celular", "whatsapp", "nome", "name", "email"].includes(cell));
-  const headers = hasHeader ? first : [];
-  const dataRows = hasHeader ? nonEmpty.slice(1) : nonEmpty;
-
-  const phoneIdx = hasHeader
-    ? columnIndex(headers, ["telefone", "phone", "celular", "whatsapp", "numero", "número"])
-    : -1;
-  const nameIdx = hasHeader ? columnIndex(headers, ["nome", "name", "cliente", "contato"]) : -1;
-  const emailIdx = hasHeader ? columnIndex(headers, ["email", "e-mail"]) : -1;
-
-  return dataRows.map((row) => {
-    const phoneCell = phoneIdx >= 0 ? row[phoneIdx] : row.find(looksLikePhone);
-    const phone = normalizePhone(phoneCell);
-    if (!phone) return null;
-
-    const name = nameIdx >= 0 ? String(row[nameIdx] || "").trim() : "";
-    const email = emailIdx >= 0 ? String(row[emailIdx] || "").trim() : "";
-    return {
-      name,
-      phone,
-      email,
-      metadata: {
-        raw: row.map((cell) => String(cell || "").trim()),
-      },
-    };
-  }).filter(Boolean) as ParsedContact[];
-}
-
-async function parseMailingFile(file: File) {
-  const ext = file.name.split(".").pop()?.toLowerCase();
-  if (ext === "txt") {
-    const text = await file.text();
-    const rows = text.split(/\r?\n/).map((line) => line.split(/[;\t,]/).map((cell) => cell.trim()));
-    return rowsToContacts(rows);
-  }
-
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(firstSheet, { header: 1, raw: false });
-  return rowsToContacts(rows);
-}
-
-function exportCsv(results: ValidationResult[]) {
-  const headers = ["telefone", "status", "nome", "pushname", "empresa", "foto", "status_foto", "email", "erro"];
-  const lines = results.map((row) => [
-    row.phone,
-    row.isOnWhatsApp ? "whatsapp" : "sem_whatsapp",
-    row.name || "",
-    row.pushName || "",
-    row.businessName || "",
-    row.avatarUrl || "",
-    row.photoStatus || "",
-    row.email || "",
-    row.error || "",
-  ].map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";"));
-  const blob = new Blob([[headers.join(";"), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "mailing-validado.csv";
-  link.click();
-  URL.revokeObjectURL(url);
+function parseContacts(value: string): ContactRow[] {
+  const seen = new Set<string>();
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/[;,|\t]/).map((part) => part.trim());
+      const phoneIndex = parts.findIndex((part) => normalizePhone(part).length >= 10);
+      const phone = phoneIndex >= 0 ? normalizePhone(parts[phoneIndex]) : "";
+      if (!phone || seen.has(phone)) return null;
+      seen.add(phone);
+      const name = parts.find((part, index) => index !== phoneIndex && !part.includes("@")) || "";
+      const email = parts.find((part) => part.includes("@")) || "";
+      return { name, phone, email };
+    })
+    .filter(Boolean) as ContactRow[];
 }
 
 export default function Campaigns() {
-  const [sessions, setSessions] = useState<WaSession[]>([]);
-  const [sessionId, setSessionId] = useState("");
-  const [contacts, setContacts] = useState<ParsedContact[]>([]);
-  const [fileName, setFileName] = useState("");
-  const [campaignName, setCampaignName] = useState("");
-  const [saveValid, setSaveValid] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [parsing, setParsing] = useState(false);
-  const [error, setError] = useState("");
-  const [data, setData] = useState<ValidationResponse | null>(null);
   const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [connections, setConnections] = useState<any[]>([]);
+  const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
+  const [campaignName, setCampaignName] = useState("");
+  const [objective, setObjective] = useState("");
+  const [tone, setTone] = useState("consultivo e humano");
+  const [links, setLinks] = useState("");
+  const [mediaUrls, setMediaUrls] = useState("");
+  const [rawContacts, setRawContacts] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
-  useEffect(() => {
-    fetch("/api/calls/sessions", { headers: authHeaders() })
-      .then((res) => res.json())
-      .then((payload) => {
-        const rows = payload.sessions || [];
-        setSessions(rows);
-        const connected = rows.find((session: WaSession) => session.paired && session.state === "open") || rows[0];
-        if (connected) setSessionId(connected.id);
-      })
-      .catch(() => setError(`Nao foi possivel carregar as conexoes ${ENGINE_ONE_NAME}.`));
-    loadCampaigns();
-  }, []);
+  const contacts = useMemo(() => parseContacts(rawContacts), [rawContacts]);
+  const whatsAppConnections = useMemo(
+    () => connections.filter((item) => ["whatsmeow", "wahaplus", "whatsapp_cloud"].includes(item.channel?.provider)),
+    [connections],
+  );
 
-  async function loadCampaigns() {
-    try {
-      const res = await api.getDialingCampaigns();
-      setCampaigns(res.campaigns || []);
-    } catch {
-      setCampaigns([]);
-    }
-  }
-
-  async function updateCampaignStatus(id: string, action: "start" | "pause" | "cancel") {
+  async function loadData() {
     setError("");
-    try {
-      if (action === "start") await api.startDialingCampaign(id);
-      if (action === "pause") await api.pauseDialingCampaign(id);
-      if (action === "cancel") await api.cancelDialingCampaign(id);
-      await loadCampaigns();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao atualizar campanha.");
-    }
-  }
-
-  const stats = useMemo(() => {
-    if (data) return data.summary;
-    return {
-      total: contacts.length,
-      uniquePhones: new Set(contacts.map((contact) => contact.phone)).size,
-      valid: 0,
-      invalid: 0,
-      errors: 0,
-    };
-  }, [contacts, data]);
-
-  async function handleFile(file?: File) {
-    if (!file) return;
-    setParsing(true);
-    setError("");
-    setData(null);
-    try {
-      const parsed = await parseMailingFile(file);
-      setContacts(parsed);
-      setFileName(file.name);
-      if (!campaignName) {
-        setCampaignName(file.name.replace(/\.[^.]+$/, ""));
-      }
-      if (parsed.length === 0) {
-        setError("Nao encontrei telefones validos no arquivo.");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao ler arquivo.");
-    } finally {
-      setParsing(false);
-    }
-  }
-
-  async function validateMailing() {
-    if (contacts.length === 0) {
-      setError("Suba um arquivo com telefones antes de validar.");
-      return;
-    }
     setLoading(true);
-    setError("");
     try {
-      const res = await fetch("/api/mailing/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ contacts, sessionId, saveValid, campaignName }),
-      });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "Erro ao validar mailing.");
-      setData(payload);
+      const [campaignPayload, connectionPayload] = await Promise.all([
+        api.getDialingCampaigns(),
+        api.getConnections(),
+      ]);
+      setCampaigns(campaignPayload.campaigns || []);
+      if ((campaignPayload as any).migrationRequired) {
+        setNotice((campaignPayload as any).warning || "Banco preparando as tabelas de campanhas.");
+      }
+      const rows = connectionPayload.connections || [];
+      setConnections(rows);
+      const defaults = rows
+        .filter((item) => ["connected", "active"].includes(item.status))
+        .filter((item) => ["whatsmeow", "wahaplus", "whatsapp_cloud"].includes(item.channel?.provider))
+        .map((item) => item.id);
+      setSelectedSessions((current) => current.length ? current : defaults.slice(0, 3));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao validar mailing.");
+      setError(err instanceof Error ? err.message : "Erro ao carregar campanhas.");
     } finally {
       setLoading(false);
     }
   }
 
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  function toggleSession(id: string) {
+    setSelectedSessions((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  }
+
+  async function createCampaign() {
+    setError("");
+    setNotice("");
+    if (!objective.trim()) {
+      setError("Informe o objetivo da campanha.");
+      return;
+    }
+    if (contacts.length === 0) {
+      setError("Cole uma lista com telefones validos.");
+      return;
+    }
+    if (selectedSessions.length === 0) {
+      setError("Selecione pelo menos uma conexao WhatsApp.");
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const payload = await api.createSmartWhatsAppCampaign({
+        campaignName,
+        objective,
+        tone,
+        contacts,
+        sessionIds: selectedSessions,
+        links: links.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+        mediaUrls: mediaUrls.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+        variantCount: 5,
+        intervalSeconds: 90,
+        dailyLimit: 250,
+        rotationStrategy: "round_robin",
+      });
+      setNotice(payload.warning || `Campanha criada com ${payload.summary?.valid || contacts.length} contatos validos.`);
+      setCampaignName("");
+      setObjective("");
+      setRawContacts("");
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao criar campanha.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function updateCampaign(id: string, action: "start" | "pause" | "cancel") {
+    setError("");
+    try {
+      if (action === "start") await api.startDialingCampaign(id);
+      if (action === "pause") await api.pauseDialingCampaign(id);
+      if (action === "cancel") await api.cancelDialingCampaign(id);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao atualizar campanha.");
+    }
+  }
+
   return (
-    <div className="space-y-6 pb-10">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="space-y-5 pb-10">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-3xl font-display font-bold mb-1">Disparos</h1>
-          <p className="text-muted">Valide listas, confirme WhatsApp e prepare campanhas para ligacao automatica.</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Woo Tech IA</p>
+          <h1 className="text-3xl font-display font-bold text-foreground">Disparos</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted">
+            Crie campanhas automaticas com rotacao entre {ENGINE_ONE_NAME} e {ENGINE_TWO_NAME}, variacoes por IA e lista validada.
+          </p>
         </div>
         <button
           type="button"
-          onClick={() => data && exportCsv(data.results)}
-          disabled={!data}
-          className="inline-flex h-11 items-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={loadData}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-bold"
         >
-          <Download className="h-4 w-4" />
-          Exportar CSV
+          <RefreshCw className="h-4 w-4" />
+          Atualizar
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <StatCard label="Linhas" value={stats.total} />
-        <StatCard label="Unicos" value={stats.uniquePhones} />
-        <StatCard label="Com WhatsApp" value={stats.valid} accent="success" />
-        <StatCard label="Sem WhatsApp" value={stats.invalid} accent="danger" />
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
-        <section className="rounded-lg border border-border bg-surface p-5">
-          <div className="mb-4 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <FileSpreadsheet className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="font-bold">Validar lista</h2>
-              <p className="text-xs text-muted">Excel, CSV ou TXT com telefone, nome e email.</p>
-            </div>
-          </div>
-
-          <label className="flex min-h-40 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-bg p-6 text-center transition hover:border-primary">
-            {parsing ? <Loader2 className="h-8 w-8 animate-spin text-primary" /> : <Upload className="h-8 w-8 text-primary" />}
-            <div>
-              <p className="text-sm font-bold">{fileName || "Selecionar arquivo"}</p>
-              <p className="text-xs text-muted">.xlsx, .xls, .csv ou .txt ate 2.000 contatos</p>
-            </div>
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv,.txt"
-              className="hidden"
-              onChange={(event) => handleFile(event.target.files?.[0])}
-            />
-          </label>
-
-          <div className="mt-4 space-y-3">
-            <label className="block">
-              <span className="mb-1 block text-xs font-bold uppercase text-muted">Sessao WhatsApp</span>
-              <select
-                value={sessionId}
-                onChange={(event) => setSessionId(event.target.value)}
-                className="h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none"
-              >
-                {sessions.map((session) => (
-                  <option key={session.id} value={session.id}>
-                    {session.name} {session.paired ? "(conectada)" : "(offline)"}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="mb-1 block text-xs font-bold uppercase text-muted">Nome da campanha</span>
-              <input
-                value={campaignName}
-                onChange={(event) => setCampaignName(event.target.value)}
-                className="h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none"
-                placeholder="Ex: Recuperacao julho"
-              />
-            </label>
-
-            <label className="flex items-center gap-3 rounded-lg border border-border bg-bg px-3 py-3 text-sm">
-              <input
-                type="checkbox"
-                checked={saveValid}
-                onChange={(event) => setSaveValid(event.target.checked)}
-                className="h-4 w-4"
-              />
-              Salvar numeros validos como campanha em rascunho
-            </label>
-
-            {error && (
-              <div className="flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={validateMailing}
-              disabled={loading || parsing || contacts.length === 0}
-              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-bg disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4" />}
-              Validar mailing
-            </button>
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-border bg-surface p-5">
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="font-bold">Resultado</h2>
-              <p className="text-xs text-muted">
-                {data?.campaign ? `Campanha criada: ${data.campaign.name}` : "Aguardando validacao do mailing."}
-              </p>
-            </div>
-            {data && (
-              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">
-                {data.summary.valid} validos
-              </span>
-            )}
-          </div>
-
-          {data?.saveWarning && (
-            <div className="mb-4 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{data.saveWarning}</span>
-            </div>
-          )}
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-border text-[11px] uppercase text-muted">
-                  <th className="pb-3 font-bold">Contato</th>
-                  <th className="pb-3 font-bold">Telefone</th>
-                  <th className="pb-3 font-bold">WhatsApp</th>
-                  <th className="pb-3 font-bold">Pushname</th>
-                  <th className="pb-3 font-bold">Foto</th>
-                  <th className="pb-3 font-bold">Erro</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {(data?.results || contacts.slice(0, 50)).map((row: any, index) => (
-                  <tr key={`${row.phone}-${index}`} className="hover:bg-bg/50">
-                    <td className="py-3">
-                      <div className="font-bold">{row.name || row.businessName || row.pushName || "Sem nome"}</div>
-                      <div className="text-xs text-muted">{row.email || ""}</div>
-                    </td>
-                    <td className="py-3 font-mono text-xs">{row.phone}</td>
-                    <td className="py-3">
-                      {data ? (
-                        <span className={cn(
-                          "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-bold",
-                          row.isOnWhatsApp ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700",
-                        )}>
-                          {row.isOnWhatsApp ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-                          {row.isOnWhatsApp ? "Sim" : "Nao"}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted">Pendente</span>
-                      )}
-                    </td>
-                    <td className="py-3">{row.pushName || row.businessName || "-"}</td>
-                    <td className="py-3">
-                      {row.avatarUrl ? (
-                        <img src={row.avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-xs font-bold text-muted">
-                            {String(row.name || row.phone || "?").slice(0, 1)}
-                          </div>
-                          {data && (
-                            <span className="max-w-24 text-[11px] leading-tight text-muted">
-                              {row.photoStatus || "foto nao retornada"}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 text-xs text-red-600">{row.error || ""}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {!data && contacts.length > 50 && (
-            <p className="mt-3 text-xs text-muted">Mostrando amostra de 50 contatos antes da validacao.</p>
-          )}
-        </section>
-      </div>
-
-      <section className="rounded-lg border border-border bg-surface p-5">
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="font-bold">Campanhas de ligacao</h2>
-            <p className="text-xs text-muted">Mailings validados salvos como campanhas para disparos automaticos.</p>
-          </div>
-          <button onClick={loadCampaigns} className="inline-flex h-10 items-center justify-center rounded-lg border border-border px-4 text-xs font-bold">
-            Atualizar
-          </button>
+      {error && (
+        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          {error}
         </div>
+      )}
+      {notice && (
+        <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          {notice}
+        </div>
+      )}
 
-        {campaigns.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-bg p-8 text-center text-sm text-muted">
-            Nenhuma campanha criada ainda.
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[440px_1fr]">
+        <section className="rounded-lg border border-border bg-surface p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Bot className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="font-display text-xl font-bold">Campanha inteligente</h2>
+              <p className="text-xs text-muted">Cole telefone, nome e email separados por linha.</p>
+            </div>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[840px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-border text-[11px] uppercase text-muted">
-                  <th className="pb-3 font-bold">Campanha</th>
-                  <th className="pb-3 font-bold">Status</th>
-                  <th className="pb-3 font-bold">Contatos</th>
-                  <th className="pb-3 font-bold">Chamados</th>
-                  <th className="pb-3 font-bold">Atendidos</th>
-                  <th className="pb-3 font-bold">Acoes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {campaigns.map((campaign) => (
-                  <tr key={campaign.id}>
-                    <td className="py-3">
-                      <div className="font-bold">{campaign.name}</div>
-                      <div className="text-xs text-muted">{campaign.description || campaign.mode}</div>
-                    </td>
-                    <td className="py-3">
+
+          <div className="space-y-3">
+            <input
+              value={campaignName}
+              onChange={(event) => setCampaignName(event.target.value)}
+              className="h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary"
+              placeholder="Nome da campanha"
+            />
+            <textarea
+              value={objective}
+              onChange={(event) => setObjective(event.target.value)}
+              className="min-h-24 w-full rounded-lg border border-border bg-bg p-3 text-sm outline-none focus:border-primary"
+              placeholder="Objetivo comercial da campanha"
+            />
+            <input
+              value={tone}
+              onChange={(event) => setTone(event.target.value)}
+              className="h-11 w-full rounded-lg border border-border bg-bg px-3 text-sm outline-none focus:border-primary"
+              placeholder="Tom da mensagem"
+            />
+            <textarea
+              value={rawContacts}
+              onChange={(event) => setRawContacts(event.target.value)}
+              className="min-h-36 w-full rounded-lg border border-border bg-bg p-3 font-mono text-xs outline-none focus:border-primary"
+              placeholder={"Paulo;559999999999\nMaria;558888888888;maria@email.com"}
+            />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <textarea
+                value={links}
+                onChange={(event) => setLinks(event.target.value)}
+                className="min-h-20 rounded-lg border border-border bg-bg p-3 text-xs outline-none focus:border-primary"
+                placeholder="Links, um por linha"
+              />
+              <textarea
+                value={mediaUrls}
+                onChange={(event) => setMediaUrls(event.target.value)}
+                className="min-h-20 rounded-lg border border-border bg-bg p-3 text-xs outline-none focus:border-primary"
+                placeholder="Midias, uma URL por linha"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-border bg-bg p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-bold uppercase text-muted">Conexoes para rotacao</span>
+              <span className="text-xs font-bold text-primary">{contacts.length} contatos</span>
+            </div>
+            <div className="grid gap-2">
+              {whatsAppConnections.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted">
+                  Nenhuma conexao WhatsApp encontrada.
+                </div>
+              ) : whatsAppConnections.map((connection) => (
+                <button
+                  key={connection.id}
+                  type="button"
+                  onClick={() => toggleSession(connection.id)}
+                  className={cn(
+                    "flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm",
+                    selectedSessions.includes(connection.id)
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border bg-surface text-foreground",
+                  )}
+                >
+                  <span className="font-bold">{connection.name}</span>
+                  <span className="text-xs">{connection.channel?.provider}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={createCampaign}
+            disabled={creating}
+            className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Criar disparo inteligente
+          </button>
+        </section>
+
+        <section className="rounded-lg border border-border bg-surface shadow-sm">
+          <div className="flex items-center justify-between border-b border-border p-5">
+            <div>
+              <h2 className="font-display text-xl font-bold">Campanhas</h2>
+              <p className="text-xs text-muted">Ative, pause e acompanhe disparos automaticos.</p>
+            </div>
+            <span className="text-xs font-bold text-muted">{campaigns.length} total</span>
+          </div>
+
+          {loading ? (
+            <div className="flex min-h-80 items-center justify-center text-muted">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : campaigns.length === 0 ? (
+            <div className="flex min-h-80 items-center justify-center p-6 text-center text-sm text-muted">
+              Nenhuma campanha cadastrada ainda.
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {campaigns.map((campaign) => (
+                <div key={campaign.id} className="grid gap-4 p-5 lg:grid-cols-[1fr_auto] lg:items-center">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-bold text-foreground">{campaign.name}</h3>
                       <span className={cn(
-                        "rounded-full px-2 py-1 text-xs font-bold",
-                        campaign.status === "active" && "bg-green-50 text-green-700",
+                        "rounded-full px-2 py-1 text-[11px] font-bold uppercase",
+                        campaign.status === "active" && "bg-emerald-50 text-emerald-700",
                         campaign.status === "paused" && "bg-amber-50 text-amber-700",
-                        campaign.status === "draft" && "bg-bg text-muted",
-                        campaign.status === "completed" && "bg-blue-50 text-blue-700",
                         campaign.status === "cancelled" && "bg-red-50 text-red-700",
+                        !["active", "paused", "cancelled"].includes(campaign.status) && "bg-bg text-muted",
                       )}>
                         {campaign.status}
                       </span>
-                    </td>
-                    <td className="py-3">{campaign.totalContacts || campaign._count?.contacts || 0}</td>
-                    <td className="py-3">{campaign.calledCount || 0}</td>
-                    <td className="py-3">{campaign.answeredCount || 0}</td>
-                    <td className="py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button onClick={() => updateCampaignStatus(campaign.id, "start")} className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white">
-                          Iniciar
-                        </button>
-                        <button onClick={() => updateCampaignStatus(campaign.id, "pause")} className="rounded-lg border border-border px-3 py-2 text-xs font-bold">
-                          Pausar
-                        </button>
-                        <button onClick={() => updateCampaignStatus(campaign.id, "cancel")} className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
-                          Cancelar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-muted">{campaign.description || campaign.mode}</p>
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs font-semibold text-muted">
+                      <span>{campaign.totalContacts || campaign._count?.contacts || 0} contatos</span>
+                      <span>{campaign.calledCount || 0} chamadas</span>
+                      <span>{campaign.answeredCount || 0} atendidas</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <ActionButton icon={Play} label="Iniciar" onClick={() => updateCampaign(campaign.id, "start")} />
+                    <ActionButton icon={Pause} label="Pausar" onClick={() => updateCampaign(campaign.id, "pause")} />
+                    <ActionButton icon={XCircle} label="Cancelar" danger onClick={() => updateCampaign(campaign.id, "cancel")} />
+                    <div className="flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-xs font-bold text-muted">
+                      <PhoneCall className="h-4 w-4" />
+                      {campaign.mode || "dialer"}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
 
-function StatCard({ label, value, accent }: { label: string; value: number; accent?: "success" | "danger" }) {
+function ActionButton({
+  icon: Icon,
+  label,
+  danger,
+  onClick,
+}: {
+  icon: typeof Play
+  label: string
+  danger?: boolean
+  onClick: () => void
+}) {
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
-      <p className="text-xs font-bold uppercase text-muted">{label}</p>
-      <p className={cn(
-        "mt-1 text-2xl font-display font-bold",
-        accent === "success" && "text-green-600",
-        accent === "danger" && "text-red-600",
-      )}>
-        {value}
-      </p>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-10 items-center gap-2 rounded-lg border px-3 text-xs font-bold",
+        danger ? "border-red-100 bg-red-50 text-red-700" : "border-border bg-bg text-foreground",
+      )}
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </button>
   );
 }

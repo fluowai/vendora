@@ -1,7 +1,8 @@
 import { Router, Request, Response } from "express";
-import { WacallsClientError } from "../lib/wacalls-client.ts";
+import { WacallsClientError, getWacallsCandidateUrls } from "../lib/wacalls-client.ts";
 import { getWaCallsBridge } from "../lib/wacalls-sse.ts";
 import { getWahaplusBridge } from "../lib/wahaplus-sse.ts";
+import { getWahaplusCandidateUrls } from "../lib/wahaplus-client.ts";
 import prisma from "../lib/prisma.ts";
 import { authMiddleware } from "../middleware/auth.ts";
 import { preferredCallPeer } from "../lib/phone.ts";
@@ -160,18 +161,20 @@ router.post("/bridge/stop", async (_req: Request, res: Response) => {
 });
 
 router.get("/bridge/status", async (_req: Request, res: Response) => {
-  const wacallsUrl = process.env.WACALLS_URL || null;
-  const wahaplusUrl = process.env.WAHAPLUS_URL || "http://vendedoraai_wahaplus:3000";
+  const wacallsUrls = getWacallsCandidateUrls();
+  const wahaplusUrls = getWahaplusCandidateUrls();
   res.json({
     gateways: {
       wacalls: {
-        configured: !!wacallsUrl,
-        bridgeUrl: wacallsUrl,
+        configured: wacallsUrls.length > 0,
+        bridgeUrl: wacallsUrls[0] || null,
+        candidates: wacallsUrls,
         sseConnected: getWaCallsBridge().isConnected,
       },
       wahaplus: {
-        configured: !!wahaplusUrl,
-        bridgeUrl: wahaplusUrl,
+        configured: wahaplusUrls.length > 0,
+        bridgeUrl: wahaplusUrls[0] || null,
+        candidates: wahaplusUrls,
         sseConnected: getWahaplusBridge().isConnected,
       },
     },

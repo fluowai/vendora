@@ -2,6 +2,7 @@ import prisma from "./prisma.ts";
 import { getIO } from "./socket.ts";
 import { logger } from "./logger.ts";
 import { preferredCallPeer, normalizePhoneForCall } from "./phone.ts";
+import { getWacallsCandidateUrls } from "./wacalls-client.ts";
 
 let bridge: WaCallsSSEBridge | null = null;
 
@@ -53,8 +54,8 @@ export class WaCallsSSEBridge {
   }
 
   private async connect() {
-    const baseUrl = process.env.WACALLS_URL?.replace(/\/$/, "");
-    if (!baseUrl) {
+    const candidateUrls = getWacallsCandidateUrls();
+    if (candidateUrls.length === 0) {
       this.scheduleReconnect(10000);
       return;
     }
@@ -62,12 +63,21 @@ export class WaCallsSSEBridge {
     this.controller = new AbortController();
 
     try {
-      const response = await fetch(`${baseUrl}/api/events`, {
-        signal: this.controller.signal,
-        headers: { Accept: "text/event-stream" },
-      });
+      let response: globalThis.Response | null = null;
+      for (const baseUrl of candidateUrls) {
+        try {
+          response = await fetch(`${baseUrl}/api/events`, {
+            signal: this.controller.signal,
+            headers: { Accept: "text/event-stream" },
+          });
+          if (response.ok && response.body) break;
+        } catch (error: any) {
+          if (error.name === "AbortError") return;
+          response = null;
+        }
+      }
 
-      if (!response.ok || !response.body) {
+      if (!response?.ok || !response.body) {
         this.scheduleReconnect(5000);
         return;
       }

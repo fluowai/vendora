@@ -43,6 +43,9 @@ jobs:
           - name: whatsmeow-bridge
             context: ./whatsmeow-bridge
             dockerfile: ./whatsmeow-bridge/Dockerfile
+          - name: wacalls-server
+            context: ./wacalls-server
+            dockerfile: ./wacalls-server/Dockerfile
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,6 +89,7 @@ jobs:
           echo "  ${{ env.IMAGE_NAMESPACE }}/api:latest"
           echo "  ${{ env.IMAGE_NAMESPACE }}/frontend:latest"
           echo "  ${{ env.IMAGE_NAMESPACE }}/whatsmeow-bridge:latest"
+          echo "  ${{ env.IMAGE_NAMESPACE }}/wacalls-server:latest"
 
   deploy-production:
     needs: [build-and-push]
@@ -99,3 +103,4 @@ jobs:
           echo "  ${{ env.IMAGE_NAMESPACE }}/api:latest"
           echo "  ${{ env.IMAGE_NAMESPACE }}/frontend:latest"
           echo "  ${{ env.IMAGE_NAMESPACE }}/whatsmeow-bridge:latest"
+          echo "  ${{ env.IMAGE_NAMESPACE }}/wacalls-server:latest"

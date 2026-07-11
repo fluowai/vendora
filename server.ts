@@ -31,6 +31,8 @@ import flowsRoutes from "./server/routes/flows.ts";
 import mailingRoutes from "./server/routes/mailing.ts";
 import pabxRoutes from "./server/routes/pabx.ts";
 import { getWaCallsBridge } from "./server/lib/wacalls-sse.ts";
+import { getWahaplusBridge } from "./server/lib/wahaplus-sse.ts";
+import { getWacallsCandidateUrls } from "./server/lib/wacalls-client.ts";
 import { ensureWaCallsBuilt, startEmbeddedWaCalls } from "./server/lib/wacalls-process.ts";
 import { initSentry } from "./server/lib/sentry.ts";
 
@@ -159,7 +161,7 @@ app.use("/api/", apiLimiter);
 
 // Health check (no rate limit)
 app.get("/api/health", async (_req, res) => {
-  const checks: Record<string, string> = {};
+  const checks: Record<string, unknown> = {};
   let allOk = true;
 
   try {
@@ -186,11 +188,20 @@ app.get("/api/health", async (_req, res) => {
     checks.redis = "not_configured";
   }
 
-  if (process.env.WACALLS_URL) {
+  const wacallsCandidates = getWacallsCandidateUrls();
+  if (wacallsCandidates.length > 0) {
     checks.wacalls = "configured";
+    checks.wacallsCandidates = wacallsCandidates;
     checks.wacallsConnected = getWaCallsBridge().isConnected ? "yes" : "no";
   } else {
     checks.wacalls = "not_configured";
+  }
+
+  if (process.env.WAHAPLUS_URL) {
+    checks.wahaplus = "configured";
+    checks.wahaplusConnected = getWahaplusBridge().isConnected ? "yes" : "no";
+  } else {
+    checks.wahaplus = "not_configured";
   }
 
   res.status(allOk ? 200 : 503).json({
@@ -273,9 +284,9 @@ async function start() {
     logger.info(`Server running on http://localhost:${PORT}`);
     logger.info("Multi-Agent engine ready");
 
-    if (process.env.WACALLS_URL) {
+    if (process.env.WACALLS_URL || !ENABLE_EMBEDDED_WACALLS) {
       getWaCallsBridge().start();
-      logger.info(`WaCalls SSE bridge started -> ${process.env.WACALLS_URL}`);
+      logger.info(`WaCalls SSE bridge started -> ${getWacallsCandidateUrls().join(", ")}`);
     } else if (ENABLE_EMBEDDED_WACALLS) {
       logger.info("WACALLS_URL not set. Attempting embedded WaCalls...");
       try {
@@ -290,6 +301,11 @@ async function start() {
       }
     } else {
       logger.info("WACALLS_URL not set and embedded WaCalls disabled.");
+    }
+
+    if (process.env.WAHAPLUS_URL) {
+      getWahaplusBridge().start();
+      logger.info(`WAHA+ SSE bridge started -> ${process.env.WAHAPLUS_URL}`);
     }
 
   });
@@ -326,6 +342,13 @@ async function gracefulShutdown(signal: string) {
       logger.info("WaCalls SSE bridge stopped");
     } catch (e) {
       logger.error("WaCalls bridge stop error", { error: e });
+    }
+
+    try {
+      getWahaplusBridge().stop();
+      logger.info("WAHA+ SSE bridge stopped");
+    } catch (e) {
+      logger.error("WAHA+ bridge stop error", { error: e });
     }
 
     if (wacallsProcess) {

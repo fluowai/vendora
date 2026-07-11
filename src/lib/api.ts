@@ -124,6 +124,7 @@ export const api = {
   // Mailing / Dialer campaigns
   getDialingCampaigns: () => request<{ campaigns: any[] }>('/mailing/campaigns'),
   getDialingCampaign: (id: string) => request<{ campaign: any }>(`/mailing/campaigns/${id}`),
+  createSmartWhatsAppCampaign: (data: any) => request<any>('/mailing/smart-campaign', { method: 'POST', body: JSON.stringify(data) }),
   startDialingCampaign: (id: string, data?: { scheduleStart?: string; scheduleEnd?: string }) =>
     request<{ campaign: any }>(`/mailing/campaigns/${id}/start`, {
       method: 'POST',

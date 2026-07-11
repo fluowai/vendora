@@ -3,6 +3,7 @@ import { getIO } from "./socket.ts";
 import { logger } from "./logger.ts";
 import { preferredCallPeer, normalizePhoneForCall } from "./phone.ts";
 import { addMessageJob } from "./queue.ts";
+import { getWahaplusCandidateUrls } from "./wahaplus-client.ts";
 
 let bridge: WahaplusSSEBridge | null = null;
 
@@ -54,8 +55,8 @@ export class WahaplusSSEBridge {
   }
 
   private async connect() {
-    const baseUrl = (process.env.WAHAPLUS_URL || "http://vendedoraai_wahaplus:3000").replace(/\/$/, "");
-    if (!baseUrl) {
+    const candidateUrls = getWahaplusCandidateUrls();
+    if (candidateUrls.length === 0) {
       this.scheduleReconnect(10000);
       return;
     }
@@ -63,12 +64,21 @@ export class WahaplusSSEBridge {
     this.controller = new AbortController();
 
     try {
-      const response = await fetch(`${baseUrl}/api/events`, {
-        signal: this.controller.signal,
-        headers: { Accept: "text/event-stream" },
-      });
+      let response: globalThis.Response | null = null;
+      for (const baseUrl of candidateUrls) {
+        try {
+          response = await fetch(`${baseUrl}/api/events`, {
+            signal: this.controller.signal,
+            headers: { Accept: "text/event-stream" },
+          });
+          if (response.ok && response.body) break;
+        } catch (error: any) {
+          if (error.name === "AbortError") return;
+          response = null;
+        }
+      }
 
-      if (!response.ok || !response.body) {
+      if (!response?.ok || !response.body) {
         this.scheduleReconnect(5000);
         return;
       }

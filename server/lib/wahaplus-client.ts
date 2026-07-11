@@ -1,5 +1,14 @@
-function getBaseUrl(): string {
-  return (process.env.WAHAPLUS_URL || "http://vendedoraai_wahaplus:3000").replace(/\/$/, "");
+function normalizeBaseUrl(value?: string): string {
+  return (value || "").replace(/\/$/, "").trim();
+}
+
+export function getWahaplusCandidateUrls(): string[] {
+  return Array.from(new Set([
+    normalizeBaseUrl(process.env.WAHAPLUS_URL),
+    "http://vendedoraai_wahaplus:3000",
+    "http://wahaplus:3000",
+    "http://localhost:3000",
+  ].filter(Boolean)));
 }
 
 export type WaCallDirection = "outbound" | "inbound";
@@ -60,35 +69,49 @@ export class WahaplusClientError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, _clientId?: string): Promise<T> {
-  const baseUrl = getBaseUrl();
-  if (!baseUrl) {
+  const candidateUrls = getWahaplusCandidateUrls();
+  if (candidateUrls.length === 0) {
     throw new WahaplusClientError(503, "WAHAPLUS_URL not configured");
   }
 
-  const res = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "unknown error");
-    let message = text;
+  let lastError: unknown = null;
+  for (const baseUrl of candidateUrls) {
     try {
-      const parsed = JSON.parse(text);
-      if (typeof parsed?.error === "string") {
-        message = parsed.error;
-      } else if (typeof parsed?.message === "string") {
-        message = parsed.message;
+      const res = await fetch(`${baseUrl}${path}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(7000),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "unknown error");
+        let message = text;
+        try {
+          const parsed = JSON.parse(text);
+          if (typeof parsed?.error === "string") {
+            message = parsed.error;
+          } else if (typeof parsed?.message === "string") {
+            message = parsed.message;
+          }
+        } catch {}
+        throw new WahaplusClientError(res.status, message);
       }
-    } catch {}
-    throw new WahaplusClientError(res.status, message);
+
+      if (res.status === 204) return undefined as T;
+      return res.json() as Promise<T>;
+    } catch (error) {
+      if (error instanceof WahaplusClientError && error.status < 500) {
+        throw error;
+      }
+      lastError = error;
+    }
   }
 
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  const detail = lastError instanceof Error ? lastError.message : String(lastError || "unknown error");
+  throw new WahaplusClientError(503, `WAHA+ indisponivel nos aliases da stack (${candidateUrls.join(", ")}): ${detail}`);
 }
 
 function mapWahaSession(session: any): WaSessionInfo {
@@ -186,7 +209,7 @@ export const wahaplus = {
     request<any>("POST", "/api/sendFile", { session, chatId: to, file: fileUrl, caption }),
 
   eventsUrl: () => {
-    const base = getBaseUrl();
+    const base = getWahaplusCandidateUrls()[0] || "";
     return base ? `${base}/api/events` : null;
   },
 

@@ -19,8 +19,21 @@ function getWhatsmeowWebhookSecret() {
   return process.env.WHATSMEOW_BRIDGE_SECRET || process.env.WEBHOOK_SECRET || "";
 }
 
+function normalizeServiceUrl(value?: string) {
+  return (value || "").replace(/\/$/, "").trim();
+}
+
+function getWhatsmeowCandidateUrls() {
+  return Array.from(new Set([
+    normalizeServiceUrl(process.env.WHATSMEOW_BRIDGE_URL),
+    "http://whatsmeow-bridge:4000",
+    "http://vendedoraai_whatsmeow-bridge:4000",
+    "http://localhost:4000",
+  ].filter(Boolean)));
+}
+
 function getWhatsmeowBridgeUrl() {
-  return (process.env.WHATSMEOW_BRIDGE_URL || "").replace(/\/$/, "");
+  return getWhatsmeowCandidateUrls()[0] || "";
 }
 
 function getWhatsmeowHeaders() {
@@ -31,21 +44,30 @@ function getWhatsmeowHeaders() {
 }
 
 async function fetchWhatsmeowBridgeJson(path: string, init?: RequestInit, timeoutMs = 5000) {
-  const bridgeUrl = getWhatsmeowBridgeUrl();
-  if (!bridgeUrl) {
+  const bridgeUrls = getWhatsmeowCandidateUrls();
+  if (bridgeUrls.length === 0) {
     return null;
   }
 
-  const response = await fetch(`${bridgeUrl}${path}`, {
-    ...init,
-    headers: {
-      ...getWhatsmeowHeaders(),
-      ...(init?.headers || {}),
-    },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const data = await response.json().catch(() => ({}));
-  return { response, data };
+  let lastError: any = null;
+  for (const bridgeUrl of bridgeUrls) {
+    try {
+      const response = await fetch(`${bridgeUrl}${path}`, {
+        ...init,
+        headers: {
+          ...getWhatsmeowHeaders(),
+          ...(init?.headers || {}),
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const data = await response.json().catch(() => ({}));
+      return { baseUrl: bridgeUrl, response, data };
+    } catch (error: any) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("whatsmeow-bridge indisponivel");
 }
 
 function getWahaplusUrl() {
@@ -123,7 +145,7 @@ async function fetchFirstWahaplus(paths: string[], init?: RequestInit, timeoutMs
 function whatsmeowBridgeError(error?: any) {
   const message = error?.message || String(error || "");
   if (!message || message === "fetch failed" || message.includes("ECONNREFUSED") || message.includes("timed out")) {
-    return "Bridge WhatsApp offline. Inicie o whatsmeow-bridge na porta 4000 para gerar o QR Code.";
+    return `Bridge WhatsApp offline. Verifique o container whatsmeow-bridge na porta 4000. Tentativas: ${getWhatsmeowCandidateUrls().join(", ")}.`;
   }
   return message;
 }
@@ -1274,12 +1296,10 @@ router.get("/whatsmeow/instances/:id/status",
     try {
       const instanceConfig = instance.config as any;
       if (instanceConfig?.webhookUrl) {
-        await fetch(`${bridgeUrl}/config`, {
+        await fetchWhatsmeowBridgeJson("/config", {
           method: "POST",
-          headers: getWhatsmeowHeaders(),
           body: JSON.stringify({ webhookUrl: instanceConfig.webhookUrl }),
-          signal: AbortSignal.timeout(3000),
-        }).catch((error) => logger.warn("[Whatsmeow] failed to sync instance webhook before status", { error, instanceId: instance.id }));
+        }, 3000).catch((error) => logger.warn("[Whatsmeow] failed to sync instance webhook before status", { error, instanceId: instance.id }));
       }
 
       const bridge = await fetchWhatsmeowBridgeJson("/status", undefined, 5000);
@@ -1331,15 +1351,10 @@ router.get("/whatsmeow/instances/:id/qr",
     try {
       const instanceConfig = instance.config as any;
       if (instanceConfig?.webhookUrl) {
-        await fetch(`${bridgeUrl}/config`, {
+        await fetchWhatsmeowBridgeJson("/config", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(process.env.WHATSMEOW_BRIDGE_SECRET ? { Authorization: `Bearer ${process.env.WHATSMEOW_BRIDGE_SECRET}` } : {}),
-          },
           body: JSON.stringify({ webhookUrl: instanceConfig.webhookUrl }),
-          signal: AbortSignal.timeout(3000),
-        }).catch((error) => logger.warn("[Whatsmeow] failed to sync instance webhook before qr", { error, instanceId: instance.id }));
+        }, 3000).catch((error) => logger.warn("[Whatsmeow] failed to sync instance webhook before qr", { error, instanceId: instance.id }));
       }
       const bridge = await fetchWhatsmeowBridgeJson("/qr", undefined, 5000);
       const response = bridge!.response;
@@ -1413,8 +1428,9 @@ router.get("/whatsmeow/status", async (_req: Request, res: Response) => {
   }
 
   try {
-    const response = await fetch(`${bridgeUrl}/status`);
-    const data = await response.json().catch(() => ({}));
+    const bridge = await fetchWhatsmeowBridgeJson("/status");
+    const response = bridge!.response;
+    const data = bridge!.data;
     res.status(response.status).json(data);
   } catch (error: any) {
     res.status(503).json({ connected: false, error: whatsmeowBridgeError(error) });
@@ -1429,8 +1445,9 @@ router.get("/whatsmeow/qr", async (_req: Request, res: Response) => {
   }
 
   try {
-    const response = await fetch(`${bridgeUrl}/qr`);
-    const data = await response.json().catch(() => ({}));
+    const bridge = await fetchWhatsmeowBridgeJson("/qr");
+    const response = bridge!.response;
+    const data = bridge!.data;
     res.status(response.status).json(data);
   } catch (error: any) {
     res.status(503).json({ error: whatsmeowBridgeError(error) });
@@ -1451,15 +1468,15 @@ router.post("/whatsmeow/pair/code", whatsappSendLimiter, async (req: Request, re
   }
 
   try {
-    const response = await fetch(`${bridgeUrl}/pair/code`, {
+    const bridge = await fetchWhatsmeowBridgeJson("/pair/code", {
       method: "POST",
-      headers: getWhatsmeowHeaders(),
       body: JSON.stringify({ phone, showPushNotification: !!showPushNotification, clientType, clientDisplayName }),
     });
-    const data = await response.json().catch(() => ({}));
+    const response = bridge!.response;
+    const data = bridge!.data;
     res.status(response.status).json(data);
   } catch (error: any) {
-    res.status(503).json({ error: error.message || "Bridge whatsmeow indisponivel" });
+    res.status(503).json({ error: whatsmeowBridgeError(error) });
   }
 });
 
@@ -1476,13 +1493,15 @@ router.post("/whatsmeow/send", whatsappSendLimiter, async (req: Request, res: Re
     return;
   }
 
-  const response = await fetch(`${bridgeUrl}/send`, {
-    method: "POST",
-    headers: getWhatsmeowHeaders(),
-    body: JSON.stringify({ to, text, conversationId }),
-  });
-  const data = await response.json().catch(() => ({}));
-  res.status(response.status).json(data);
+  try {
+    const bridge = await fetchWhatsmeowBridgeJson("/send", {
+      method: "POST",
+      body: JSON.stringify({ to, text, conversationId }),
+    });
+    res.status(bridge!.response.status).json(bridge!.data);
+  } catch (error: any) {
+    res.status(503).json({ error: whatsmeowBridgeError(error) });
+  }
 });
 
 router.post("/whatsmeow/send/media", whatsappMediaLimiter, async (req: Request, res: Response) => {
@@ -1498,13 +1517,15 @@ router.post("/whatsmeow/send/media", whatsappMediaLimiter, async (req: Request, 
     return;
   }
 
-  const response = await fetch(`${bridgeUrl}/send/media`, {
-    method: "POST",
-    headers: getWhatsmeowHeaders(),
-    body: JSON.stringify({ to, caption, mediaUrl, mediaType, fileName, conversationId }),
-  });
-  const data = await response.json().catch(() => ({}));
-  res.status(response.status).json(data);
+  try {
+    const bridge = await fetchWhatsmeowBridgeJson("/send/media", {
+      method: "POST",
+      body: JSON.stringify({ to, caption, mediaUrl, mediaType, fileName, conversationId }),
+    });
+    res.status(bridge!.response.status).json(bridge!.data);
+  } catch (error: any) {
+    res.status(503).json({ error: whatsmeowBridgeError(error) });
+  }
 });
 
 router.post("/whatsmeow/typing", async (req: Request, res: Response) => {
@@ -1520,13 +1541,15 @@ router.post("/whatsmeow/typing", async (req: Request, res: Response) => {
     return;
   }
 
-  const response = await fetch(`${bridgeUrl}/typing`, {
-    method: "POST",
-    headers: getWhatsmeowHeaders(),
-    body: JSON.stringify({ to, state: state || "typing" }),
-  });
-  const data = await response.json().catch(() => ({}));
-  res.status(response.status).json(data);
+  try {
+    const bridge = await fetchWhatsmeowBridgeJson("/typing", {
+      method: "POST",
+      body: JSON.stringify({ to, state: state || "typing" }),
+    });
+    res.status(bridge!.response.status).json(bridge!.data);
+  } catch (error: any) {
+    res.status(503).json({ error: whatsmeowBridgeError(error) });
+  }
 });
 
 router.get("/whatsmeow/health", async (_req: Request, res: Response) => {
@@ -1537,8 +1560,9 @@ router.get("/whatsmeow/health", async (_req: Request, res: Response) => {
   }
 
   try {
-    const response = await fetch(`${bridgeUrl}/health`);
-    const data = await response.json().catch(() => ({}));
+    const bridge = await fetchWhatsmeowBridgeJson("/health");
+    const response = bridge!.response;
+    const data = bridge!.data;
     res.status(response.status).json(data);
   } catch (error: any) {
     res.status(503).json({ error: whatsmeowBridgeError(error) });
