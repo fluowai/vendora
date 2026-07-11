@@ -1,7 +1,8 @@
 import prisma from "./prisma.ts";
 import { logger } from "./logger.ts";
 import { emitToTenant } from "./socket.ts";
-import { addMessageJob } from "./queue.ts";
+import { normalizePhoneForCall } from "./phone.ts";
+import { getDefaultVoiceGateway } from "./voice-gateway.ts";
 
 const DIALER_RATE = parseInt(process.env.DIALER_CALLS_PER_MINUTE || "10", 10);
 const MIN_INTERVAL_MS = Math.max(60000 / DIALER_RATE, 1000);
@@ -10,10 +11,6 @@ interface DialerResult {
   campaignId: string
   processed: number
   nextBatch: boolean
-}
-
-function normalizePhone(phone: string): string {
-  return phone.replace(/[^\d]/g, "").replace(/^(\d{2})/, "55$1");
 }
 
 function isWithinSchedule(campaign: { scheduleStart?: Date | null; scheduleEnd?: Date | null }): boolean {
@@ -35,12 +32,12 @@ export async function processCampaign(campaignId: string): Promise<DialerResult>
     return { campaignId, processed: 0, nextBatch: false };
   }
 
-  const wacallsUrl = process.env.WACALLS_URL;
   const sessionId = campaign.sessionId || process.env.DIALER_DEFAULT_SESSION_ID;
-  if (!wacallsUrl || !sessionId) {
-    logger.warn("[Dialer] WaCalls URL ou sessionId não configurado", { campaignId });
+  if (!sessionId) {
+    logger.warn("[Dialer] sessionId nao configurado", { campaignId });
     return { campaignId, processed: 0, nextBatch: false };
   }
+  const voiceGateway = getDefaultVoiceGateway();
 
   const pendingContacts = await prisma.campaignContact.findMany({
     where: {
@@ -70,27 +67,24 @@ export async function processCampaign(campaignId: string): Promise<DialerResult>
     if (!attempt) continue;
 
     try {
-      const phone = normalizePhone(contact.phone);
-      const response = await fetch(`${wacallsUrl}/api/sessions/${sessionId}/calls`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, record: true }),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => "unknown error");
-        await failAttempt(attempt.id, errText);
+      const phone = normalizePhoneForCall(contact.phone);
+      if (!phone) {
+        await failAttempt(attempt.id, "telefone invalido");
         processed++;
         continue;
       }
-
-      const data = await response.json();
+      const data = await voiceGateway.startCall({
+        sessionId,
+        phone,
+        record: true,
+      });
       const callId = data?.call?.callId;
 
       await prisma.callAttempt.update({
         where: { id: attempt.id },
         data: {
           status: "ringing",
+          sessionId,
           callId: callId || null,
           startedAt: new Date(),
         },

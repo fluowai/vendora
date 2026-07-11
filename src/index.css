@@ -5,16 +5,16 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Outfit", var(--font-sans);
 
-  --color-bg: #F8FAFC;
+  --color-bg: #EDF6F7;
   --color-surface: #FFFFFF;
   --color-card: #FFFFFF;
-  --color-primary: #25D366;
-  --color-primary-dark: #128C7E;
-  --color-secondary: #00E5A8;
-  --color-accent: #38BDF8;
-  --color-text: #0F172A;
-  --color-muted: #64748B;
-  --color-border: #E2E8F0;
+  --color-primary: #0B3348;
+  --color-primary-dark: #08283A;
+  --color-secondary: #42D8A4;
+  --color-accent: #2E8F8B;
+  --color-text: #102332;
+  --color-muted: #667987;
+  --color-border: #DCE8EA;
 }
 
 @layer base {
@@ -27,6 +27,14 @@
   @apply bg-white/80 backdrop-blur-md border border-white;
 }
 
+.app-panel {
+  @apply bg-surface border border-border rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.04)];
+}
+
+.section-eyebrow {
+  @apply text-[10px] font-bold uppercase tracking-[0.22em] text-muted;
+}
+
 @keyframes slide-up {
   from { opacity: 0; transform: translateY(1rem); }
   to { opacity: 1; transform: translateY(0); }
@@ -37,7 +45,7 @@
 }
 
 .green-glow-soft {
-  @apply shadow-[0_4px_14px_0_rgba(37,211,102,0.15)];
+  @apply shadow-[0_4px_14px_0_rgba(11,51,72,0.16)];
 }
 
 .kanban-column {
@@ -49,7 +57,7 @@
 }
 
 .chat-bubble-sent {
-  @apply bg-[#E8F6F0] text-[#128C7E] rounded-2xl rounded-tr-none p-3 max-w-[80%] text-sm ml-auto border border-[#25D366]/20;
+  @apply bg-[#E7F7F1] text-[#0B3348] rounded-2xl rounded-tr-none p-3 max-w-[80%] text-sm ml-auto border border-[#42D8A4]/30;
 }
 
 .card-shadow {

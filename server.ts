@@ -27,6 +27,9 @@ import crmRoutes from "./server/routes/crm.ts";
 import ombudsmanRoutes from "./server/routes/ombudsman.ts";
 import uploadRoutes from "./server/routes/upload.ts";
 import callsRoutes from "./server/routes/calls.ts";
+import flowsRoutes from "./server/routes/flows.ts";
+import mailingRoutes from "./server/routes/mailing.ts";
+import pabxRoutes from "./server/routes/pabx.ts";
 import { getWaCallsBridge } from "./server/lib/wacalls-sse.ts";
 import { ensureWaCallsBuilt, startEmbeddedWaCalls } from "./server/lib/wacalls-process.ts";
 import { initSentry } from "./server/lib/sentry.ts";
@@ -193,7 +196,7 @@ app.get("/api/health", async (_req, res) => {
   res.status(allOk ? 200 : 503).json({
     status: allOk ? "ok" : "degraded",
     version: "2.0.0",
-    platform: "vendaora-360",
+    platform: "wootech-ia",
     timestamp: new Date().toISOString(),
     checks,
   });
@@ -218,6 +221,9 @@ app.use("/api/tickets", ticketsRoutes);
 app.use("/api/crm", crmRoutes);
 app.use("/api/ombudsman", ombudsmanRoutes);
 app.use("/api/calls", callsRoutes);
+app.use("/api/flows", flowsRoutes);
+app.use("/api/mailing", mailingRoutes);
+app.use("/api/pabx", pabxRoutes);
 
 // Global error handler (must be after routes)
 app.use(errorHandler);

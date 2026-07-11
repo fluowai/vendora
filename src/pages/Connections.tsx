@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { api } from "@/src/lib/api";
 import { formatPhoneForDisplay } from "../lib/phone";
+import { ENGINE_ONE_NAME, ENGINE_TWO_NAME } from "../components/BrandLogo";
 
 type EngineTab = "whatsmeow" | "wahaplus";
 
@@ -71,7 +72,7 @@ export default function Connections() {
       void Promise.allSettled(whatsmeowConnections.map((item: any) => checkStatus(item.id, true)));
       if (engineTab === "wahaplus") await loadWahaplusSessions();
     } catch (e: any) {
-      setError(e.message || "Erro ao carregar instancias");
+      setError(e.message || "Erro ao carregar conexoes");
     } finally {
       setLoading(false);
     }
@@ -88,14 +89,14 @@ export default function Connections() {
         setWahaplusSessions([]);
       }
     } catch (e: any) {
-      setWahaplusStatus({ connected: false, error: e.message || "WAHA+ indisponivel" });
+      setWahaplusStatus({ connected: false, error: e.message || `${ENGINE_TWO_NAME} indisponivel` });
       setWahaplusSessions([]);
     }
   };
 
   const createInstance = async () => {
     if (!instanceName.trim()) {
-      setError("Informe um nome para a instancia");
+      setError("Informe um nome para a conexao");
       return;
     }
     try {
@@ -111,14 +112,14 @@ export default function Connections() {
       setSaving(false);
       openQr(data.connection.id);
     } catch (e: any) {
-      setError(e.message || "Erro ao criar instancia");
+      setError(e.message || "Erro ao criar conexao");
       setSaving(false);
     }
   };
 
   const createWahaplusSession = async () => {
     if (!wahaplusSessionName.trim()) {
-      setError("Informe um nome para a sessao");
+      setError("Informe um nome para a conexao");
       return;
     }
     try {
@@ -130,7 +131,7 @@ export default function Connections() {
       await loadWahaplusSessions();
       await openWahaplusQr(created.name || created.id || sessionName);
     } catch (e: any) {
-      setError(e.message || "Erro ao criar sessao WAHA+");
+      setError(e.message || `Erro ao criar conexao ${ENGINE_TWO_NAME}`);
     } finally {
       setSaving(false);
     }
@@ -141,7 +142,7 @@ export default function Connections() {
       await api.deleteWahaplusSession(sid);
       await loadWahaplusSessions();
     } catch (e: any) {
-      setError(e.message || "Erro ao deletar sessao");
+      setError(e.message || "Erro ao deletar conexao");
     }
   };
 
@@ -158,7 +159,7 @@ export default function Connections() {
         setPairingSecondsLeft(50);
         pairingDeadlineRef.current = Date.now() + 50000;
       } else {
-        setPairingError("QR nao disponivel para esta sessao");
+      setPairingError("QR nao disponivel para esta conexao");
       }
     } catch (e: any) {
       setPairingError(e.message || "Erro ao carregar QR");
@@ -313,14 +314,14 @@ export default function Connections() {
       )));
       if (pairingId === id) closePairing();
     } catch (e: any) {
-      setError(e.message || "Erro ao desconectar instancia");
+      setError(e.message || "Erro ao desconectar conexao");
     } finally {
       setCheckingId("");
     }
   };
 
   const deleteInstance = async (connection: any) => {
-    const ok = confirm(`Remover definitivamente a instancia "${connection.name}" e as conversas vinculadas a ela? Esta acao nao pode ser desfeita.`);
+    const ok = confirm(`Remover definitivamente a conexao "${connection.name}" e as conversas vinculadas a ela? Esta acao nao pode ser desfeita.`);
     if (!ok) return;
     try {
       setCheckingId(connection.id);
@@ -339,7 +340,7 @@ export default function Connections() {
       });
       if (pairingId === connection.id) closePairing();
     } catch (e: any) {
-      setError(e.message || "Erro ao remover instancia");
+      setError(e.message || "Erro ao remover conexao");
     } finally {
       setCheckingId("");
     }
@@ -370,10 +371,10 @@ export default function Connections() {
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <p className="text-xs font-bold text-primary uppercase tracking-widest mb-2">WhatsApp</p>
-          <h1 className="text-3xl font-display font-bold text-text">Conexões</h1>
+          <p className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Woo Tech IA</p>
+          <h1 className="text-3xl font-display font-bold text-text">Perfil WhatsApp</h1>
           <p className="text-sm text-muted mt-2 max-w-2xl">
-            Crie instancias de WhatsApp para receber e enviar mensagens no painel.
+            Crie conexoes de WhatsApp para mensagens, chamadas e automacoes usando os dois motores da marca.
           </p>
         </div>
         <button
@@ -394,7 +395,7 @@ export default function Connections() {
               : "text-muted hover:text-text"
           }`}
         >
-          <Smartphone className="w-4 h-4" /> whatsmeow v1.0
+          <Smartphone className="w-4 h-4" /> {ENGINE_ONE_NAME}
         </button>
         <button
           onClick={() => setEngineTab("wahaplus")}
@@ -404,7 +405,7 @@ export default function Connections() {
               : "text-muted hover:text-text"
           }`}
         >
-          <Cpu className="w-4 h-4" /> WAHA+ v2.0
+          <Cpu className="w-4 h-4" /> {ENGINE_TWO_NAME}
         </button>
       </div>
 
@@ -422,13 +423,13 @@ export default function Connections() {
                 <Smartphone className="w-6 h-6 text-[#128C7E]" />
               </div>
               <div>
-                <h2 className="font-bold text-lg">Nova instância</h2>
-                <p className="text-xs text-muted">WhatsApp via whatsmeow</p>
+                <h2 className="font-bold text-lg">Nova conexao</h2>
+                <p className="text-xs text-muted">{ENGINE_ONE_NAME} via whatsmeow + WaCalls</p>
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-muted uppercase tracking-widest">Nome da instância</label>
+              <label className="text-[10px] font-bold text-muted uppercase tracking-widest">Nome da conexao</label>
               <input
                 value={instanceName}
                 onChange={(e) => setInstanceName(e.target.value)}
@@ -443,13 +444,13 @@ export default function Connections() {
               className="w-full inline-flex items-center justify-center gap-2 bg-primary text-white rounded-xl px-4 py-3 text-sm font-bold hover:bg-primary/90 disabled:opacity-50 transition-all"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Criar instância
+              Criar conexao
             </button>
 
             <div className="p-4 bg-bg rounded-xl border border-border">
               <p className="text-xs font-bold text-text mb-2">Pareamento</p>
               <p className="text-xs text-muted leading-relaxed">
-                Depois de criar a instância, o QR Code abre automaticamente. Escaneie com o WhatsApp e aguarde a conexão.
+                Depois de criar a conexao, o QR Code abre automaticamente. Escaneie com o WhatsApp e aguarde a conexao.
               </p>
             </div>
           </section>
@@ -457,21 +458,21 @@ export default function Connections() {
           <section className="bg-surface border border-border rounded-2xl overflow-hidden">
             <div className="p-5 border-b border-border flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-lg">Instâncias</h2>
-                <p className="text-xs text-muted mt-1">WhatsApp cadastrados via whatsmeow.</p>
+                <h2 className="font-bold text-lg">Conexoes {ENGINE_ONE_NAME}</h2>
+                <p className="text-xs text-muted mt-1">WhatsApp cadastrados via whatsmeow e chamadas via WaCalls.</p>
               </div>
               <span className="text-xs font-bold text-muted">{connections.length} total</span>
             </div>
 
             {loading ? (
               <div className="p-8 flex items-center gap-3 text-muted text-sm">
-                <Loader2 className="w-4 h-4 animate-spin" /> Carregando instâncias...
+                <Loader2 className="w-4 h-4 animate-spin" /> Carregando conexoes...
               </div>
             ) : connections.length === 0 ? (
               <div className="p-10 text-center">
                 <Smartphone className="w-12 h-12 text-muted/40 mx-auto mb-4" />
-                <h3 className="font-bold text-text">Nenhuma instância criada</h3>
-                <p className="text-sm text-muted mt-2">Crie a primeira instância para conectar um WhatsApp.</p>
+                <h3 className="font-bold text-text">Nenhuma conexao criada</h3>
+                <p className="text-sm text-muted mt-2">Crie a primeira conexao para conectar um WhatsApp.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-5">
@@ -537,7 +538,7 @@ export default function Connections() {
                             onClick={() => deleteInstance(connection)}
                             disabled={checkingId === connection.id}
                             className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-red-50 border border-red-100 text-red-700 hover:bg-red-100 disabled:opacity-50"
-                            title="Remover instancia"
+                            title="Remover conexao"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -564,13 +565,13 @@ export default function Connections() {
                 <Cpu className="w-6 h-6 text-purple-600" />
               </div>
               <div>
-                <h2 className="font-bold text-lg">Nova sessão WAHA+</h2>
-                <p className="text-xs text-muted">WhatsApp via WAHA+ v2.0</p>
+                <h2 className="font-bold text-lg">Nova conexao {ENGINE_TWO_NAME}</h2>
+                <p className="text-xs text-muted">WhatsApp via WAHA+</p>
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-bold text-muted uppercase tracking-widest">Nome da sessão</label>
+              <label className="text-[10px] font-bold text-muted uppercase tracking-widest">Nome da conexao</label>
               <input
                 value={wahaplusSessionName}
                 onChange={(e) => setWahaplusSessionName(e.target.value)}
@@ -585,13 +586,13 @@ export default function Connections() {
               className="w-full inline-flex items-center justify-center gap-2 bg-purple-600 text-white rounded-xl px-4 py-3 text-sm font-bold hover:bg-purple-700 disabled:opacity-50 transition-all"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Criar sessão
+              Criar conexao
             </button>
 
             <div className="p-4 bg-bg rounded-xl border border-border">
-              <p className="text-xs font-bold text-text mb-2">Status: {wahaplusStatus?.connected ? "Conectado" : "Desconectado"}</p>
+              <p className="text-xs font-bold text-text mb-2">Status {ENGINE_TWO_NAME}: {wahaplusStatus?.connected ? "Conectado" : "Desconectado"}</p>
               <p className="text-xs text-muted leading-relaxed">
-                WAHA+ roda via Docker. Certifique-se de que o container está rodando e a WAHAPLUS_URL está configurada no .env.
+                {ENGINE_TWO_NAME} roda via Docker com WAHA+. Certifique-se de que o container esta rodando e a WAHAPLUS_URL esta configurada no .env.
               </p>
             </div>
           </section>
@@ -599,8 +600,8 @@ export default function Connections() {
           <section className="bg-surface border border-border rounded-2xl overflow-hidden">
             <div className="p-5 border-b border-border flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-lg">Sessões WAHA+</h2>
-                <p className="text-xs text-muted mt-1">Sessões WhatsApp gerenciadas pelo WAHA+.</p>
+                <h2 className="font-bold text-lg">Conexoes {ENGINE_TWO_NAME}</h2>
+                <p className="text-xs text-muted mt-1">Sessoes WhatsApp gerenciadas pelo WAHA+.</p>
               </div>
               <span className="text-xs font-bold text-muted">{wahaplusSessions.length} total</span>
             </div>
@@ -608,15 +609,15 @@ export default function Connections() {
             {!wahaplusStatus?.connected ? (
               <div className="p-10 text-center">
                 <Cpu className="w-12 h-12 text-muted/40 mx-auto mb-4" />
-                <h3 className="font-bold text-text">WAHA+ não conectado</h3>
+                <h3 className="font-bold text-text">{ENGINE_TWO_NAME} nao conectado</h3>
                 <p className="text-sm text-muted mt-2">Configure WAHAPLUS_URL no .env e inicie o container Docker.</p>
                 <p className="text-xs text-muted mt-1">docker run -d -p 3000:3000 devlikeapro/waha</p>
               </div>
             ) : wahaplusSessions.length === 0 ? (
               <div className="p-10 text-center">
                 <Cpu className="w-12 h-12 text-muted/40 mx-auto mb-4" />
-                <h3 className="font-bold text-text">Nenhuma sessão</h3>
-                <p className="text-sm text-muted mt-2">Crie a primeira sessão para conectar um WhatsApp via WAHA+.</p>
+                <h3 className="font-bold text-text">Nenhuma conexao</h3>
+                <p className="text-sm text-muted mt-2">Crie a primeira conexao para conectar um WhatsApp via {ENGINE_TWO_NAME}.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-5">

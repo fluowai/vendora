@@ -121,6 +121,17 @@ export const api = {
   executeTool: (name: string, data: any) =>
     request<any>(`/tools/${name}/execute`, { method: 'POST', body: JSON.stringify(data) }),
 
+  // Mailing / Dialer campaigns
+  getDialingCampaigns: () => request<{ campaigns: any[] }>('/mailing/campaigns'),
+  getDialingCampaign: (id: string) => request<{ campaign: any }>(`/mailing/campaigns/${id}`),
+  startDialingCampaign: (id: string, data?: { scheduleStart?: string; scheduleEnd?: string }) =>
+    request<{ campaign: any }>(`/mailing/campaigns/${id}/start`, {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    }),
+  pauseDialingCampaign: (id: string) => request<{ ok: boolean }>(`/mailing/campaigns/${id}/pause`, { method: 'POST' }),
+  cancelDialingCampaign: (id: string) => request<{ ok: boolean }>(`/mailing/campaigns/${id}/cancel`, { method: 'POST' }),
+
   // Conversations
   getConversations: (params?: { status?: string; search?: string; channel?: string; scope?: string; chatType?: string }) => {
     const qs = new URLSearchParams()

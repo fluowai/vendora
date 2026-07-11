@@ -50,7 +50,7 @@ const faqItems = [
     a: "Sim. Utilizamos recursos avançados de segurança, como criptografia de chamadas e autenticação de usuários, garantindo a proteção dos dados e da comunicação da sua empresa.",
   },
   {
-    q: "Como funciona a instalação do PABX Vendaora?",
+    q: "Como funciona a instalação do PABX Woo Tech IA?",
     a: "A instalação é simples e rápida. Como não exige centrais físicas, sua empresa precisa apenas de dispositivos com acesso à internet. A configuração ocorre por meio de uma interface intuitiva.",
   },
   {
@@ -72,7 +72,7 @@ export default function PabxLandingPage() {
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
               <PhoneCall className="text-white w-5 h-5" />
             </div>
-            <span className="font-display font-bold text-lg lg:text-xl tracking-tight text-text">Vendaora PABX</span>
+            <span className="font-display font-bold text-lg lg:text-xl tracking-tight text-text">Woo Tech IA PABX</span>
           </div>
 
           <div className="hidden lg:flex items-center gap-8">
@@ -102,7 +102,7 @@ export default function PabxLandingPage() {
                 <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                   <PhoneCall className="text-white w-5 h-5" />
                 </div>
-                <span className="font-display font-bold text-xl text-text">Vendaora PABX</span>
+                <span className="font-display font-bold text-xl text-text">Woo Tech IA PABX</span>
               </div>
               <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 text-muted">
                 <X className="w-6 h-6" />
@@ -234,7 +234,7 @@ export default function PabxLandingPage() {
       <section id="features" className="py-24 lg:py-32">
         <div className="max-w-7xl mx-auto px-6">
           <div className="mb-16 lg:mb-20 text-center max-w-2xl mx-auto">
-            <h2 className="text-3xl lg:text-4xl font-display font-bold mb-6 text-text">Vantagens do PABX Vendaora</h2>
+            <h2 className="text-3xl lg:text-4xl font-display font-bold mb-6 text-text">Vantagens do PABX Woo Tech IA</h2>
             <p className="text-muted text-base lg:text-lg">
               Tudo que sua empresa precisa para centralizar a comunicação telefônica com eficiência e economia.
             </p>
@@ -311,7 +311,7 @@ export default function PabxLandingPage() {
                 Agende uma demonstração gratuita
               </h2>
               <p className="text-white/80 text-base lg:text-lg max-w-xl mx-auto mb-10">
-                Descubra como o PABX Vendaora pode transformar a comunicação da sua empresa com nossa plataforma completa.
+                Descubra como o PABX Woo Tech IA pode transformar a comunicação da sua empresa com nossa plataforma completa.
               </p>
               <a href="#" className="inline-flex items-center gap-2 px-8 py-4 bg-white text-text font-bold rounded-2xl hover:scale-105 transition-all shadow-xl">
                 Falar com Especialista
@@ -327,7 +327,7 @@ export default function PabxLandingPage() {
         <div className="max-w-3xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl lg:text-4xl font-display font-bold mb-6 text-text">Perguntas Frequentes</h2>
-            <p className="text-muted">Tire suas dúvidas sobre o PABX em Nuvem Vendaora.</p>
+            <p className="text-muted">Tire suas dúvidas sobre o PABX em Nuvem Woo Tech IA.</p>
           </div>
 
           <div className="space-y-4">
@@ -357,11 +357,11 @@ export default function PabxLandingPage() {
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
               <PhoneCall className="text-white w-5 h-5" />
             </div>
-            <span className="font-display font-bold text-xl tracking-tight text-text">Vendaora PABX</span>
+            <span className="font-display font-bold text-xl tracking-tight text-text">Woo Tech IA PABX</span>
           </div>
-          <p className="text-muted text-sm text-center">2025 Vendaora. PABX em Nuvem — Todos os direitos reservados.</p>
+          <p className="text-muted text-sm text-center">2026 Woo Tech IA. PABX em Nuvem — Todos os direitos reservados.</p>
           <div className="flex items-center gap-6">
-            <Link to="/" className="text-muted hover:text-primary transition-colors text-sm font-medium">Vendaora AI</Link>
+            <Link to="/" className="text-muted hover:text-primary transition-colors text-sm font-medium">Woo Tech IA</Link>
             <Link to="/auth" className="text-muted hover:text-primary transition-colors text-sm font-medium">Entrar</Link>
           </div>
         </div>

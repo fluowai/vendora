@@ -49,7 +49,7 @@ export default function SuperAdminDashboard() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-display font-bold text-text">Painel Super Admin</h1>
-        <p className="text-muted text-sm mt-1">Visão geral de toda a plataforma Vendaora 360</p>
+        <p className="text-muted text-sm mt-1">Visão geral de toda a plataforma Woo Tech IA</p>
       </div>
 
       {loading ? (

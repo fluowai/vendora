@@ -112,7 +112,7 @@ export function WidgetPreview({ config }: { config: WidgetConfig }) {
 
 // Generator for embed code
 export function generateEmbedCode(agentId: string, color = '#25D366'): string {
-  return `<!-- Vendaora 360 - AI Agent Widget -->
+  return `<!-- Woo Tech IA - AI Agent Widget -->
 <script src="${window.location.origin}/api/public/widget.js" data-agent-id="${agentId}" data-color="${color}" async></script>
-<!-- End Vendaora 360 Widget -->`
+<!-- End Woo Tech IA Widget -->`
 }

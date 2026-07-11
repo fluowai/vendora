@@ -4,6 +4,7 @@ import prisma from "../lib/prisma.ts";
 import { authMiddleware } from "../middleware/auth.ts";
 import { normalizePhoneForCall } from "../lib/phone.ts";
 import { wacalls, WacallsClientError, type WaContactValidationResult } from "../lib/wacalls-client.ts";
+import { addJob } from "../lib/queue.ts";
 
 const router = Router();
 
@@ -40,6 +41,103 @@ async function resolveSessionId(sessionId?: string) {
 }
 
 router.use(authMiddleware);
+
+router.get("/campaigns", async (req: Request, res: Response) => {
+  try {
+    const campaigns = await prisma.dialingCampaign.findMany({
+      where: { tenantId: req.user!.tenantId },
+      include: {
+        _count: { select: { contacts: true, attempts: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+    res.json({ campaigns });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.get("/campaigns/:id", async (req: Request, res: Response) => {
+  try {
+    const campaign = await prisma.dialingCampaign.findFirst({
+      where: { id: req.params.id, tenantId: req.user!.tenantId },
+      include: {
+        contacts: { orderBy: { createdAt: "asc" }, take: 200 },
+        attempts: { orderBy: { createdAt: "desc" }, take: 200 },
+      },
+    });
+    if (!campaign) {
+      res.status(404).json({ error: "Campanha nao encontrada" });
+      return;
+    }
+    res.json({ campaign });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post("/campaigns/:id/start", async (req: Request, res: Response) => {
+  try {
+    const campaign = await prisma.dialingCampaign.findFirst({
+      where: { id: req.params.id, tenantId: req.user!.tenantId },
+    });
+    if (!campaign) {
+      res.status(404).json({ error: "Campanha nao encontrada" });
+      return;
+    }
+    if (!campaign.sessionId && !process.env.DIALER_DEFAULT_SESSION_ID) {
+      res.status(400).json({ error: "Configure uma conexao de voz para iniciar a campanha" });
+      return;
+    }
+
+    const updated = await prisma.dialingCampaign.update({
+      where: { id: campaign.id },
+      data: {
+        status: "active",
+        scheduleStart: req.body?.scheduleStart ? new Date(req.body.scheduleStart) : campaign.scheduleStart,
+        scheduleEnd: req.body?.scheduleEnd ? new Date(req.body.scheduleEnd) : campaign.scheduleEnd,
+      },
+    });
+
+    await addJob("dialer", "process", { campaignId: updated.id }, { delay: 500 });
+    res.json({ campaign: updated });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post("/campaigns/:id/pause", async (req: Request, res: Response) => {
+  try {
+    const campaign = await prisma.dialingCampaign.updateMany({
+      where: { id: req.params.id, tenantId: req.user!.tenantId },
+      data: { status: "paused" },
+    });
+    if (!campaign.count) {
+      res.status(404).json({ error: "Campanha nao encontrada" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+router.post("/campaigns/:id/cancel", async (req: Request, res: Response) => {
+  try {
+    const campaign = await prisma.dialingCampaign.updateMany({
+      where: { id: req.params.id, tenantId: req.user!.tenantId },
+      data: { status: "cancelled" },
+    });
+    if (!campaign.count) {
+      res.status(404).json({ error: "Campanha nao encontrada" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
 
 router.post("/validate", async (req: Request, res: Response) => {
   try {

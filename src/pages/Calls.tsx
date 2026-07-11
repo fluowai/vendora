@@ -8,6 +8,7 @@ import { CallHistory } from "../components/calls/CallHistory";
 import { QRDisplay } from "../components/calls/QRDisplay";
 import { api } from "../lib/api";
 import type { WaSession } from "../types/calls";
+import { ENGINE_ONE_NAME, ENGINE_TWO_NAME } from "../components/BrandLogo";
 
 type EngineTab = "wacalls" | "wahaplus";
 
@@ -130,7 +131,7 @@ export default function CallsPage() {
         await hook.createSession(`Calls ${sessions.length + 1}`);
       } else {
         if (!wahaplusAvailable) {
-          setCallError("WAHA+ nao esta configurado neste ambiente. Use WaCalls v1.0.");
+          setCallError(`${ENGINE_TWO_NAME} nao esta configurado neste ambiente. Use ${ENGINE_ONE_NAME}.`);
           return;
         }
         await api.createWahaplusSession(`Calls ${sessions.length + 1}`);
@@ -172,10 +173,10 @@ export default function CallsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Phone className="w-6 h-6 text-primary" /> Chamadas
+            <Phone className="w-6 h-6 text-primary" /> Disparos agendados
           </h1>
           <p className="text-muted text-sm mt-1">
-            {hook.connected ? "Conectado" : "Desconectado"}
+            {hook.connected ? "Central de chamadas conectada" : "Central de chamadas desconectada"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -198,7 +199,7 @@ export default function CallsPage() {
               : "text-muted hover:text-text"
           }`}
         >
-          <Smartphone className="w-4 h-4" /> WaCalls v1.0
+          <Smartphone className="w-4 h-4" /> {ENGINE_ONE_NAME}
         </button>
         {wahaplusAvailable && (
           <button
@@ -209,15 +210,15 @@ export default function CallsPage() {
                 : "text-muted hover:text-text"
             }`}
           >
-            <Cpu className="w-4 h-4" /> WAHA+ v2.0
-          </button>
+          <Cpu className="w-4 h-4" /> {ENGINE_TWO_NAME}
+        </button>
         )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Sessoes WhatsApp</h2>
+            <h2 className="font-semibold">Conexoes de voz</h2>
             <button
               onClick={handleCreateSession}
               disabled={creating}
@@ -235,7 +236,7 @@ export default function CallsPage() {
           <div className="space-y-2">
             {sessions.length === 0 && (
               <div className="text-center py-8 text-muted text-sm border border-dashed border-border rounded-xl">
-                Nenhuma sessao {engine === "wahaplus" ? "WAHA+" : ""}. Crie uma para comecar.
+                Nenhuma conexao {engine === "wahaplus" ? ENGINE_TWO_NAME : ENGINE_ONE_NAME}. Crie uma para comecar.
               </div>
             )}
             {sessions.map((s) => {
@@ -263,7 +264,7 @@ export default function CallsPage() {
                             ? "bg-purple-100 text-purple-700"
                             : "bg-blue-100 text-blue-700"
                         }`}>
-                          {s.engine === "wahaplus" ? "WAHA+" : "v1"}
+                          {s.engine === "wahaplus" ? "IA 2" : "IA 1"}
                         </span>
                       )}
                     </div>
@@ -299,13 +300,13 @@ export default function CallsPage() {
           ) : !selectedSession?.paired ? (
             <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-border rounded-2xl">
               <Phone className="w-12 h-12 text-muted mb-4" />
-              <p className="text-muted font-medium">Selecione ou crie uma sessao pareada</p>
-              <p className="text-muted text-sm mt-1">Voce precisa parear um dispositivo WhatsApp para fazer chamadas</p>
+              <p className="text-muted font-medium">Selecione ou crie uma conexao pareada</p>
+              <p className="text-muted text-sm mt-1">Voce precisa parear uma conexao Woo Tech IA para fazer chamadas</p>
             </div>
           ) : (
             <>
               <div className="bg-surface border border-border rounded-xl p-4">
-                <h3 className="font-semibold mb-3">Nova Chamada</h3>
+                <h3 className="font-semibold mb-3">Nova ligacao</h3>
                 <CallDialer onStartCall={handleStartCall} calling={calling || webrtcConnecting} />
                 {callError && (
                   <p className="text-red-500 text-xs mt-2">{callError}</p>
@@ -317,7 +318,7 @@ export default function CallsPage() {
 
               {hook.activeCalls.length > 0 && (
                 <div className="space-y-2">
-                  <h3 className="font-semibold">Chamadas Ativas ({hook.activeCalls.length})</h3>
+                  <h3 className="font-semibold">Ligacoes ativas ({hook.activeCalls.length})</h3>
                   {hook.activeCalls.map((call) => (
                     <ActiveCall
                       key={call.callId}
@@ -335,7 +336,7 @@ export default function CallsPage() {
 
               {showHistory && (
                 <div className="bg-surface border border-border rounded-xl p-4">
-                  <h3 className="font-semibold mb-3">Historico de Chamadas</h3>
+                  <h3 className="font-semibold mb-3">Historico de ligacoes</h3>
                   <CallHistory records={history} />
                 </div>
               )}

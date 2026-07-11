@@ -1,4 +1,4 @@
-# Vendaora 360
+# Woo Tech IA
 
 Plataforma omnicanal com WhatsApp não-oficial (whatsmeow), VoIP (WaCalls), AI Agents, CRM, Ouvidoria e automação.
 

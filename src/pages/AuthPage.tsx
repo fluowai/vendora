@@ -77,7 +77,7 @@ export default function AuthPage() {
             <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center shadow-lg">
               <Bot className="text-bg w-7 h-7" />
             </div>
-            <span className="font-display font-bold text-3xl tracking-tight">Vendaora 360</span>
+            <span className="font-display font-bold text-3xl tracking-tight">Woo Tech IA</span>
           </div>
           <h1 className="text-4xl font-display font-bold mb-6 leading-tight">Máquina de Agentes de IA para qualquer segmento.</h1>
           <p className="text-muted text-lg mb-10">

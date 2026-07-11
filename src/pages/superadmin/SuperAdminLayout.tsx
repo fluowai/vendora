@@ -59,7 +59,7 @@ export default function SuperAdminLayout() {
           </div>
           <div>
             <span className="font-display font-bold text-lg text-text">Mega Admin</span>
-            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">Vendaora 360</p>
+            <p className="text-[10px] text-muted font-bold uppercase tracking-wider">Woo Tech IA</p>
           </div>
         </div>
       </div>

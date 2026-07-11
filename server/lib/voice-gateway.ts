@@ -100,12 +100,77 @@ const wahaplusGateway: VoiceGateway = {
   history: (sessionId) => wahaplus.history(sessionId),
 };
 
+async function requestAsterisk<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const baseUrl = (process.env.ASTERISK_GATEWAY_URL || "").replace(/\/$/, "");
+  if (!baseUrl) {
+    throw new Error("ASTERISK_GATEWAY_URL nao configurado");
+  }
+  const res = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(process.env.ASTERISK_GATEWAY_TOKEN ? { Authorization: `Bearer ${process.env.ASTERISK_GATEWAY_TOKEN}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "unknown error");
+    throw new Error(text || `Asterisk gateway error ${res.status}`);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+const asteriskGateway: VoiceGateway = {
+  kind: "asterisk",
+  capabilities: {
+    whatsappCalls: false,
+    pstnCalls: true,
+    sipTrunking: true,
+    mediaStreaming: true,
+    recording: true,
+    contactValidation: false,
+  },
+  listSessions: async () => ({
+    sessions: [{
+      id: process.env.ASTERISK_DEFAULT_ENDPOINT || "asterisk-main",
+      name: "WooTech IA SIP",
+      jid: "sip",
+      state: "open",
+      paired: true,
+    }],
+  }),
+  createSession: async (name) => requestAsterisk<{ id: string }>("POST", "/api/sessions", { name }),
+  deleteSession: async (sessionId) => requestAsterisk<void>("DELETE", `/api/sessions/${sessionId}`),
+  logoutSession: async () => undefined,
+  pairSession: async () => undefined,
+  startCall: ({ sessionId, phone, record, clientId }) =>
+    requestAsterisk<WaCallResponse>("POST", "/api/calls", {
+      endpoint: sessionId,
+      phone,
+      record,
+      clientId,
+    }),
+  sendWebRTC: ({ sessionId, callId, sdpOffer, clientId }) =>
+    requestAsterisk<WaWebRTCResponse>("POST", `/api/calls/${callId}/webrtc`, { sessionId, sdp_offer: sdpOffer, clientId }),
+  acceptCall: (sessionId, callId, clientId) =>
+    requestAsterisk<{ call: { callId: string } }>("POST", `/api/calls/${callId}/accept`, { sessionId, clientId }),
+  rejectCall: (sessionId, callId, clientId) =>
+    requestAsterisk<{ status: string }>("POST", `/api/calls/${callId}/reject`, { sessionId, clientId }),
+  endCall: (sessionId, callId, clientId) =>
+    requestAsterisk<void>("DELETE", `/api/calls/${callId}`, { sessionId, clientId }),
+  history: (sessionId) =>
+    requestAsterisk<WaHistoryResponse>("GET", `/api/sessions/${sessionId}/history`),
+};
+
 export function getVoiceGateway(kind: VoiceGatewayKind = "wacalls"): VoiceGateway {
   switch (kind) {
     case "wacalls":
       return wacallsGateway;
     case "wahaplus":
       return wahaplusGateway;
+    case "asterisk":
+      return asteriskGateway;
     default:
       throw new Error(`Voice gateway ${kind} ainda nao implementado`);
   }
