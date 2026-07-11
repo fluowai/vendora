@@ -87,8 +87,8 @@ function getWahaplusCandidateUrls() {
   const configured = getWahaplusUrl();
   return Array.from(new Set([
     configured,
-    "http://vendedoraai_wahaplus:3000",
     "http://wahaplus:3000",
+    "http://vendedoraai_wahaplus:3000",
   ].filter(Boolean)));
 }
 

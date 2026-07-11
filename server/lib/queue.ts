@@ -259,7 +259,7 @@ export function setupWorkers() {
         throw new Error((data as any).error || `Falha ao enviar: ${response.status}`);
       }
     } else if (effectiveChannel === "wahaplus") {
-      const wahaplusUrl = (process.env.WAHAPLUS_URL || "http://vendedoraai_wahaplus:3000").replace(/\/$/, "");
+      const wahaplusUrl = (process.env.WAHAPLUS_URL || "http://wahaplus:3000").replace(/\/$/, "");
       if (!wahaplusUrl) throw new Error("WAHAPLUS_URL nao configurado");
 
       const conversation = await prisma.conversation.findUnique({

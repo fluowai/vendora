@@ -5,8 +5,8 @@ function normalizeBaseUrl(value?: string): string {
 export function getWahaplusCandidateUrls(): string[] {
   return Array.from(new Set([
     normalizeBaseUrl(process.env.WAHAPLUS_URL),
-    "http://vendedoraai_wahaplus:3000",
     "http://wahaplus:3000",
+    "http://vendedoraai_wahaplus:3000",
     "http://localhost:3000",
   ].filter(Boolean)));
 }
