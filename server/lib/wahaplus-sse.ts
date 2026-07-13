@@ -317,7 +317,7 @@ export class WahaplusSSEBridge {
         : await prisma.tenant.findFirst();
       if (!tenant) return;
 
-      let contactIdentity = chatId
+      const contactIdentity = chatId
         ? await prisma.contactIdentity.findFirst({
             where: { tenantId: tenant.id, provider: "wahaplus", externalId: String(chatId) },
             include: { contact: true },

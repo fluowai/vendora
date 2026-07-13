@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { toAgentResponse } from "../../server/lib/agent-engine";
 
 describe("Agent Engine", () => {

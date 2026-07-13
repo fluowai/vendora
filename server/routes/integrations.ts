@@ -274,14 +274,6 @@ function jidToPhone(value: string) {
   return cleaned.length >= 10 ? cleaned : "";
 }
 
-function normalizeWhatsAppJid(value: string) {
-  const trimmed = bareWhatsAppJid(value);
-  if (!trimmed || isLid(trimmed)) return "";
-  if (trimmed.includes("@")) return trimmed;
-  const phone = jidToPhone(trimmed);
-  return phone ? `${phone}@s.whatsapp.net` : "";
-}
-
 function normalizeJidCandidate(value: string) {
   const trimmed = bareWhatsAppJid(value);
   if (!trimmed) return "";

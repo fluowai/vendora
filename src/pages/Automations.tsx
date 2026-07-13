@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addEdge,
   Background,
@@ -152,6 +152,7 @@ export default function Automations() {
   const [saving, setSaving] = useState(false);
   const [testInput, setTestInput] = useState("Oi, quero atendimento");
   const [testOutput, setTestOutput] = useState("");
+  const nextNodeIdRef = useRef(1);
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -223,7 +224,7 @@ export default function Automations() {
 
   function handleAddNode(type: string) {
     const config = nodeTypes.find((item) => item.type === type);
-    const id = `${type}_${Date.now()}`;
+    const id = `${type}_${nextNodeIdRef.current++}`;
     const data: FlowNodeData = {
       type,
       label: config?.label || type,

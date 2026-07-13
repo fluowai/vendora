@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { Store, TrendingUp, Sparkles, ArrowRight, Bot } from "lucide-react"
+import { Store, TrendingUp, Sparkles, ArrowRight } from "lucide-react"
 import { MarketplaceCard } from "@/src/components/marketplace/MarketplaceCard"
 import { SegmentFilter } from "@/src/components/marketplace/SegmentFilter"
 import { api } from "@/src/lib/api"
+import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER } from "@/src/lib/llm-defaults"
 
 export default function Marketplace() {
   const navigate = useNavigate()
@@ -45,8 +46,8 @@ export default function Marketplace() {
       segment: source.segment,
       status: "active",
       llmConfig: source.llmConfig || {
-        provider: "gemini",
-        model: "gemini-1.5-flash",
+        provider: DEFAULT_LLM_PROVIDER,
+        model: DEFAULT_LLM_MODEL,
         temperature: 0.7,
         systemPrompt: source.description || `Voce e um agente especializado em ${source.segment}.`,
       },

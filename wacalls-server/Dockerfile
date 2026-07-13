@@ -1,12 +1,12 @@
 FROM golang:1.26-alpine AS builder
 
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache ca-certificates
 
 WORKDIR /build
-RUN git clone https://github.com/JotaDev66/WaCalls.git .
-
+COPY go.mod go.sum ./
 RUN go mod download
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o wacalls-server ./cmd/server
+COPY . .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o wacalls-server .
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates

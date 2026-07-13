@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect } from "vitest";
 
 describe("WhatsApp Integration", () => {
   describe("normalizeJID", () => {
@@ -81,18 +81,18 @@ describe("WhatsApp Integration", () => {
     });
 
     it("should reject when tokens do not match", () => {
-      const verifyToken = "vendaora_verify";
-      const mode = "subscribe";
-      const token = "wrong_token";
+      const verifyToken: string = "vendaora_verify";
+      const mode: string = "subscribe";
+      const token: string = "wrong_token";
 
       const result = mode === "subscribe" && token === verifyToken ? "challenge" : null;
       expect(result).toBeNull();
     });
 
     it("should reject when mode is not subscribe", () => {
-      const verifyToken = "vendaora_verify";
-      const mode = "unsubscribe";
-      const token = "vendaora_verify";
+      const verifyToken: string = "vendaora_verify";
+      const mode: string = "unsubscribe";
+      const token: string = "vendaora_verify";
 
       const result = mode === "subscribe" && token === verifyToken ? "challenge" : null;
       expect(result).toBeNull();

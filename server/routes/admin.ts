@@ -80,7 +80,6 @@ router.post("/team/invite", requirePermission("team", "manage"), async (req: Req
       }
     }
 
-    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     res.status(201).json({
       user: {
         id: user.id,

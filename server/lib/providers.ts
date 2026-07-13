@@ -1,11 +1,14 @@
 import { GoogleGenAI } from "@google/genai";
 import { LLMConfig, LLMProvider } from "../../src/types/index.ts";
+import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER } from "../../src/lib/llm-defaults.ts";
 import { incrementLlmCalls } from "./metrics.ts";
 
 interface LLMResponse {
   text: string
   usage?: { promptTokens: number; completionTokens: number }
 }
+
+export { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER };
 
 export async function executeLLM(config: LLMConfig, prompt: string, context?: string): Promise<LLMResponse> {
   incrementLlmCalls(config.provider);
@@ -152,7 +155,7 @@ async function executeGroq(config: LLMConfig, prompt: string, context?: string):
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: config.model || 'llama-3.3-70b-versatile',
+      model: config.model || DEFAULT_LLM_MODEL,
       messages,
       temperature: config.temperature ?? 0.7,
       max_tokens: config.maxTokens ?? 1024,
@@ -228,7 +231,7 @@ export const AVAILABLE_MODELS: Record<LLMProvider, { id: string; name: string }[
     { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' },
   ],
   groq: [
-    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
+    { id: DEFAULT_LLM_MODEL, name: 'Llama 3.3 70B' },
     { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B (Fast)' },
     { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
     { id: 'gemma2-9b-it', name: 'Gemma 2 9B' },

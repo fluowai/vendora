@@ -1,8 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import {
-  CheckCircle2, Bot, MessageSquare, BarChart3, Globe,
-  Users, Shield, Zap, Sparkles, Store, Layers, ArrowRight
+  CheckCircle2, Sparkles, ArrowRight
 } from "lucide-react"
 import { cn } from "@/src/lib/utils"
 

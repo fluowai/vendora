@@ -1,8 +1,8 @@
 import prisma from "./prisma.ts";
 import { executeAgentTool, type AgentToolName } from "./agent-tools.ts";
-import { executeLLM, SEGMENT_PROMPTS } from "./providers.ts";
+import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, executeLLM, SEGMENT_PROMPTS } from "./providers.ts";
 import { searchKnowledgeBaseDetailed } from "./knowledge-base.ts";
-import { LLMConfig, AgentSegment, Message } from "../../src/types/index.ts";
+import { LLMConfig, Message } from "../../src/types/index.ts";
 
 interface AgentExecutionResult {
   response: string
@@ -25,11 +25,13 @@ export interface AgentRuntimeContext {
 
 export function toAgentResponse(agent: any) {
   if (!agent) return null;
+  const provider = agent.modelProvider || DEFAULT_LLM_PROVIDER;
+  const model = agent.modelName || DEFAULT_LLM_MODEL;
   return {
     ...agent,
     llmConfig: {
-      provider: agent.modelProvider,
-      model: agent.modelName,
+      provider,
+      model,
       systemPrompt: agent.basePrompt,
       temperature: agent.temperature ?? 0.7,
     },
@@ -42,12 +44,14 @@ export function toAgentResponse(agent: any) {
 
 function fromAgentInput(body: any, defaults: Record<string, any> = {}) {
   const { llmConfig, channels, tags, ...rest } = body;
+  const provider = llmConfig?.provider || defaults.modelProvider || rest.modelProvider || DEFAULT_LLM_PROVIDER;
+  const model = llmConfig?.model || defaults.modelName || rest.modelName || DEFAULT_LLM_MODEL;
   const input: any = {
     ...defaults,
     ...rest,
+    modelProvider: provider,
+    modelName: model,
     ...(llmConfig ? {
-      modelProvider: llmConfig.provider,
-      modelName: llmConfig.model,
       basePrompt: llmConfig.systemPrompt,
       temperature: llmConfig.temperature ?? 0.7,
     } : {}),
@@ -111,8 +115,8 @@ export async function executeAgent(
   runtimeContext?: AgentRuntimeContext,
 ): Promise<AgentExecutionResult> {
   const llmConfig: LLMConfig = agent.llmConfig || {
-    provider: agent.modelProvider as any,
-    model: agent.modelName,
+    provider: agent.modelProvider || DEFAULT_LLM_PROVIDER,
+    model: agent.modelName || DEFAULT_LLM_MODEL,
     temperature: agent.temperature ?? 0.7,
     systemPrompt: agent.basePrompt,
   };

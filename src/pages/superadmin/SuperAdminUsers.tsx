@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Search, Shield, CheckCircle, XCircle, ArrowLeft, Plus, Trash2, UserRound } from "lucide-react"
 import { cn } from "@/src/lib/utils"
 
@@ -51,7 +51,7 @@ export default function SuperAdminUsers() {
 
   const token = () => localStorage.getItem("vendaora_token")
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const params = new URLSearchParams({ page: String(page), limit: "20" })
       if (search) params.set("search", search)
@@ -60,11 +60,14 @@ export default function SuperAdminUsers() {
       })
       const data = await res.json()
       if (res.ok) { setUsers(data.users); setTotalPages(data.pagination.totalPages) }
-    } catch (err) { console.error(err) }
-    finally { setLoading(false) }
-  }
+    } catch {
+      setError("Erro ao buscar usuarios.")
+    } finally {
+      setLoading(false)
+    }
+  }, [page, search])
 
-  const fetchTenants = async () => {
+  const fetchTenants = useCallback(async () => {
     try {
       const res = await fetch("/api/superadmin/tenants?limit=100", {
         headers: { Authorization: `Bearer ${token()}` },
@@ -74,11 +77,20 @@ export default function SuperAdminUsers() {
         setTenants(data.tenants || [])
         setCreateForm((current) => current.tenantId ? current : { ...current, tenantId: data.tenants?.[0]?.id || "" })
       }
-    } catch (err) { console.error(err) }
-  }
+    } catch {
+      setError("Erro ao buscar clientes.")
+    }
+  }, [])
 
-  useEffect(() => { fetchTenants() }, [])
-  useEffect(() => { fetchUsers() }, [page, search])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    fetchTenants()
+  }, [fetchTenants])
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    fetchUsers()
+  }, [fetchUsers])
 
   const handleEdit = (user: SAUser) => {
     setEditing(user)
@@ -120,8 +132,7 @@ export default function SuperAdminUsers() {
       }
       setEditing(null)
       fetchUsers()
-    } catch (err) {
-      console.error(err)
+    } catch {
       setError("Erro ao salvar usuario.")
     } finally {
       setSaving(false)
@@ -159,8 +170,7 @@ export default function SuperAdminUsers() {
       setCreateForm({ ...emptyCreateForm, tenantId: tenants[0]?.id || "" })
       setShowCreate(false)
       fetchUsers()
-    } catch (err) {
-      console.error(err)
+    } catch {
       setError("Erro ao criar usuario.")
     } finally {
       setSaving(false)
@@ -181,8 +191,7 @@ export default function SuperAdminUsers() {
         return
       }
       fetchUsers()
-    } catch (err) {
-      console.error(err)
+    } catch {
       alert("Erro ao excluir usuario.")
     }
   }

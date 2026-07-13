@@ -130,11 +130,14 @@ services:
       - "traefik.http.routers.vendaora_uploads.priority=10"
       - "traefik.http.routers.vendaora_uploads.service=vendaora_api"
       - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
+      - "traefik.http.services.vendaora_api.loadbalancer.sticky.cookie=true"
     deploy:
       replicas: 1
       restart_policy:
         condition: any
         delay: 5s
+      update_config:
+        order: stop-first
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=woopanel1"
@@ -154,6 +157,7 @@ services:
         - "traefik.http.routers.vendaora_uploads.priority=10"
         - "traefik.http.routers.vendaora_uploads.service=vendaora_api"
         - "traefik.http.services.vendaora_api.loadbalancer.server.port=3333"
+        - "traefik.http.services.vendaora_api.loadbalancer.sticky.cookie=true"
 
   whatsmeow-bridge:
     image: ghcr.io/fluowai/vendora/whatsmeow-bridge:latest

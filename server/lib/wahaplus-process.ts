@@ -1,12 +1,8 @@
 import { spawn, ChildProcess } from "child_process";
-import path from "path";
-import fs from "fs";
 import net from "net";
 import { logger } from "./logger.ts";
 
 const WAHAPLUS_PORT = parseInt(process.env.WAHAPLUS_PORT || "3000", 10);
-const WAHAPLUS_DIR = path.join(process.cwd(), "wahaplus");
-
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();

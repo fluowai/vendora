@@ -222,8 +222,6 @@ async function main() {
   // ============= ROLES (always ensure they exist) =============
   const existingRoles = await prisma.role.findMany({ where: { tenantId: tenant.id } });
   const existingRoleNames = existingRoles.map((r) => r.name);
-  let createdAdminRole: any;
-
   for (const [roleName, perms] of Object.entries(ALL_PERMISSIONS)) {
     if (existingRoleNames.includes(roleName)) {
       // Update permissions
@@ -235,7 +233,7 @@ async function main() {
       console.log(`    Updated role: ${roleName}`);
     } else {
       // Create role
-      const role = await prisma.role.create({
+      await prisma.role.create({
         data: {
           tenantId: tenant.id,
           name: roleName,
@@ -320,7 +318,7 @@ async function main() {
       {
         id: "agent-sdr-vendas", name: "SDR Vendas", segment: "vendas",
         description: "Especialista em qualificar leads que chegam pelos canais de entrada. Agenda reuniões e identifica o perfil do cliente ideal.",
-        modelProvider: "gemini", modelName: "gemini-3-flash-preview", temperature: 0.7,
+        modelProvider: "groq", modelName: "llama-3.3-70b-versatile", temperature: 0.7,
         basePrompt: "Seu foco é qualificar leads rapidamente. Faça perguntas estratégicas para entender dor, orçamento e urgência.",
         status: "paused", enabled: false, channels: ["whatsapp", "instagram", "web"], isPublished: false, installs: 1240, rating: 4.8,
         tags: ["vendas", "qualificacao", "lead-generation"],
@@ -328,7 +326,7 @@ async function main() {
       {
         id: "agent-suporte-tecnico", name: "Suporte Técnico", segment: "suporte",
         description: "Resolve dúvidas frequentes sobre produtos e serviços. Escala problemas complexos para a equipe humana.",
-        modelProvider: "gemini", modelName: "gemini-3-pro-preview", temperature: 0.3,
+        modelProvider: "groq", modelName: "llama-3.3-70b-versatile", temperature: 0.3,
         basePrompt: "Seja paciente e resolva o problema do cliente. Se não conseguir resolver, explique claramente e escale.",
         status: "active", channels: ["whatsapp", "instagram", "web", "email"], isPublished: true, installs: 856, rating: 4.6,
         tags: ["suporte", "helpdesk", "faq"],
@@ -336,7 +334,7 @@ async function main() {
       {
         id: "agent-pos-venda", name: "Assistente Pós-Venda", segment: "retencao",
         description: "Entra em contato após a compra para garantir satisfação, pedir review e oferecer produtos complementares.",
-        modelProvider: "gemini", modelName: "gemini-3-flash-preview", temperature: 0.8,
+        modelProvider: "groq", modelName: "llama-3.3-70b-versatile", temperature: 0.8,
         basePrompt: "Seja gentil e acolhedor. O foco é satisfação do cliente e fidelização.",
         status: "paused", channels: ["whatsapp", "email"], isPublished: true, installs: 432, rating: 4.2,
         tags: ["pos-venda", "retencao", "nps"],
@@ -344,7 +342,7 @@ async function main() {
       {
         id: "agent-triagem-saude", name: "Triagem Saúde", segment: "saude",
         description: "Realiza pré-triagem de pacientes, coleta sintomas e agenda consultas com o especialista adequado.",
-        modelProvider: "gemini", modelName: "gemini-3-flash-preview", temperature: 0.4,
+        modelProvider: "groq", modelName: "llama-3.3-70b-versatile", temperature: 0.4,
         basePrompt: "Você é um assistente de saúde. Mantenha tom profissional e ético. Nunca forneça diagnósticos definitivos.",
         status: "draft", channels: ["whatsapp", "web"], isPublished: true, installs: 234, rating: 4.5,
         tags: ["saude", "triagem", "agendamento"],
@@ -352,7 +350,7 @@ async function main() {
       {
         id: "agent-assistente-juridico", name: "Assistente Jurídico", segment: "juridico",
         description: "Presta informações jurídicas iniciais, gera minutas de contratos simples e acompanha prazos processuais.",
-        modelProvider: "gemini", modelName: "gemini-3-pro-preview", temperature: 0.3,
+        modelProvider: "groq", modelName: "llama-3.3-70b-versatile", temperature: 0.3,
         basePrompt: "Você é um assistente jurídico. Use linguagem formal e precisa. Informe que não substitui um advogado.",
         status: "draft", channels: ["web", "email"], isPublished: true, installs: 187, rating: 4.3,
         tags: ["juridico", "contratos", "consultoria"],
@@ -360,7 +358,7 @@ async function main() {
       {
         id: "agent-tutor-educacao", name: "Tutor Virtual", segment: "educacao",
         description: "Auxilia alunos com dúvidas de estudos, revisa conteúdos e sugere materiais de aprendizado complementares.",
-        modelProvider: "openai", modelName: "gpt-4o-mini", temperature: 0.6,
+        modelProvider: "groq", modelName: "llama-3.3-70b-versatile", temperature: 0.6,
         basePrompt: "Você é um tutor educacional. Seja paciente e didático. Adapte a explicação ao nível do aluno.",
         status: "active", channels: ["web", "whatsapp", "telegram"], isPublished: true, installs: 567, rating: 4.7,
         tags: ["educacao", "tutoria", "estudos"],
@@ -376,7 +374,7 @@ async function main() {
       {
         id: "agent-analista-financeiro", name: "Analista Financeiro", segment: "financeiro",
         description: "Analisa perfil de crédito, simula financiamentos, organiza orçamento pessoal e responde dúvidas sobre investimentos.",
-        modelProvider: "anthropic", modelName: "claude-3-sonnet-20240229", temperature: 0.3,
+        modelProvider: "groq", modelName: "llama-3.3-70b-versatile", temperature: 0.3,
         basePrompt: "Você é um analista financeiro. Seja conservador nas recomendações. Informe riscos. Nunca prometa retornos garantidos.",
         status: "draft", channels: ["web", "email", "whatsapp"], isPublished: true, installs: 178, rating: 4.1,
         tags: ["financeiro", "credito", "investimentos"],

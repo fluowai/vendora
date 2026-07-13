@@ -10,47 +10,17 @@ const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "" },
   { icon: Building2, label: "Clientes", href: "tenants" },
   { icon: CreditCard, label: "Planos", href: "plans" },
-  { icon: Users, label: "Usuários", href: "users" },
+  { icon: Users, label: "Usuarios", href: "users" },
   { icon: Palette, label: "Revendas", href: "whitelabel" },
 ]
 
-export default function SuperAdminLayout() {
-  const navigate = useNavigate()
-  const [user, setUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [mobileOpen, setMobileOpen] = useState(false)
+type SidebarProps = {
+  user: any
+  onLogout: () => void
+}
 
-  useEffect(() => {
-    const stored = localStorage.getItem("vendaora_user")
-    const token = localStorage.getItem("vendaora_token")
-    if (!stored || !token) {
-      navigate("/auth")
-      return
-    }
-    const parsed = JSON.parse(stored)
-    if (!parsed.isSuperadmin && parsed.platformRole !== "mega_admin") {
-      navigate("/app/dashboard")
-      return
-    }
-    setUser(parsed)
-    setLoading(false)
-  }, [])
-
-  const handleLogout = () => {
-    localStorage.removeItem("vendaora_token")
-    localStorage.removeItem("vendaora_user")
-    navigate("/")
-  }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
-      </div>
-    )
-  }
-
-  const Sidebar = () => (
+function Sidebar({ user, onLogout }: SidebarProps) {
+  return (
     <div className="flex flex-col h-full">
       <div className="p-6 border-b border-border">
         <div className="flex items-center gap-3">
@@ -94,7 +64,7 @@ export default function SuperAdminLayout() {
           </div>
         </div>
         <button
-          onClick={handleLogout}
+          onClick={onLogout}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 transition-all font-medium text-sm"
         >
           <LogOut className="w-4 h-4" />
@@ -103,11 +73,48 @@ export default function SuperAdminLayout() {
       </div>
     </div>
   )
+}
+
+export default function SuperAdminLayout() {
+  const navigate = useNavigate()
+  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  useEffect(() => {
+    const stored = localStorage.getItem("vendaora_user")
+    const token = localStorage.getItem("vendaora_token")
+    if (!stored || !token) {
+      navigate("/auth")
+      return
+    }
+    const parsed = JSON.parse(stored)
+    if (!parsed.isSuperadmin && parsed.platformRole !== "mega_admin") {
+      navigate("/app/dashboard")
+      return
+    }
+    setUser(parsed)
+    setLoading(false)
+  }, [navigate])
+
+  const handleLogout = () => {
+    localStorage.removeItem("vendaora_token")
+    localStorage.removeItem("vendaora_user")
+    navigate("/")
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-bg flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full" />
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-bg flex">
       <aside className="hidden lg:flex w-64 border-r border-border flex-col bg-surface fixed inset-y-0">
-        <Sidebar />
+        <Sidebar user={user} onLogout={handleLogout} />
       </aside>
 
       {mobileOpen && (
@@ -117,7 +124,7 @@ export default function SuperAdminLayout() {
             <button onClick={() => setMobileOpen(false)} className="absolute top-4 right-4 p-2 text-muted">
               <X className="w-5 h-5" />
             </button>
-            <Sidebar />
+            <Sidebar user={user} onLogout={handleLogout} />
           </aside>
         </>
       )}

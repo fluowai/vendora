@@ -1,0 +1,10 @@
+node_modules
+.dist
+dist
+.vite
+.DS_Store
+wacalls
+whatsmeow-bridge
+scripts
+public
+uploads

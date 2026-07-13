@@ -63,7 +63,7 @@ async function deleteTenantGraph(tx: any, tenantId: string) {
   const [
     users,
     roles,
-    conversations,
+    _conversations,
     channels,
     calendars,
     knowledgeBases,
@@ -92,7 +92,6 @@ async function deleteTenantGraph(tx: any, tenantId: string) {
 
   const userIds = users.map((item: { id: string }) => item.id);
   const roleIds = roles.map((item: { id: string }) => item.id);
-  const conversationIds = conversations.map((item: { id: string }) => item.id);
   const channelIds = channels.map((item: { id: string }) => item.id);
   const calendarIds = calendars.map((item: { id: string }) => item.id);
   const knowledgeBaseIds = knowledgeBases.map((item: { id: string }) => item.id);

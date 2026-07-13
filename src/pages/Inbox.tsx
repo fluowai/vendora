@@ -56,6 +56,19 @@ export default function Inbox() {
   const audioChunksRef = useRef<BlobPart[]>([]);
   const { lastMessage, joinConversation, leaveConversation } = useSocket();
 
+  const loadConversations = async (query = search, type = chatType) => {
+    try {
+      setLoading(true);
+      setError("");
+      const data = await api.getConversations({ search: query, chatType: type === "all" ? undefined : type });
+      setConversations(data.conversations);
+    } catch (e: any) {
+      setError(e.message || "Erro ao carregar conversas");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const query = searchParams.get("search") || "";
     setSearch(query);
@@ -150,19 +163,6 @@ export default function Inbox() {
       );
     }
   }, [lastMessage, chatType, search]);
-
-  const loadConversations = async (query = search, type = chatType) => {
-    try {
-      setLoading(true);
-      setError("");
-      const data = await api.getConversations({ search: query, chatType: type === "all" ? undefined : type });
-      setConversations(data.conversations);
-    } catch (e: any) {
-      setError(e.message || "Erro ao carregar conversas");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openConversation = async (chat: any) => {
     setActiveChat(chat);

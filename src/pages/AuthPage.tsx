@@ -1,7 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Bot, Mail, Lock, Chrome, ArrowRight, AlertCircle, Loader2 } from "lucide-react"
-import { motion } from "motion/react"
+import { Bot, Mail, Lock, ArrowRight, AlertCircle, Loader2 } from "lucide-react"
 
 async function readAuthResponse(res: Response) {
   const text = await res.text()

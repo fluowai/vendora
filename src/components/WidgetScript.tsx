@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Bot, X, Send, MessageSquare } from "lucide-react"
 import { api } from "@/src/lib/api"
 

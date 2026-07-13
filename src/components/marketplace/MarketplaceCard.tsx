@@ -1,5 +1,6 @@
 import { Bot, Star, Download, MessageSquare, LucideIcon } from "lucide-react"
 import { cn } from "@/src/lib/utils"
+import { DEFAULT_LLM_PROVIDER } from "@/src/lib/llm-defaults"
 
 const segmentIcons: Record<string, LucideIcon> = {
   vendas: Bot,
@@ -77,7 +78,7 @@ export function MarketplaceCard({
             "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-lg",
             agent.status === 'active' ? 'bg-primary/10 text-primary' : 'bg-muted/10 text-muted'
           )}>
-            {agent.llmConfig?.provider || 'gemini'}
+            {agent.llmConfig?.provider || DEFAULT_LLM_PROVIDER}
           </span>
           <button
             onClick={(e) => { e.stopPropagation(); onInstall?.(agent.id) }}

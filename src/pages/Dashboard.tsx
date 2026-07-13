@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  Users, MessageSquare, TrendingUp, Clock, ArrowUpRight, ChevronRight, Bot, Loader2
+  Users, MessageSquare, Clock, Bot, Loader2
 } from "lucide-react";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
@@ -13,18 +13,16 @@ export default function Dashboard() {
   const [overview, setOverview] = useState<any>(null);
   const [daily, setDaily] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
-  const [trend, setTrend] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [apiError, setApiError] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     let hasError = false;
     Promise.all([
-      api.getAnalyticsOverview().then(r => setOverview(r.overview)).catch((e) => { hasError = true; setApiError(e.message); return null; }),
-      api.getAnalyticsDaily(7).then(r => setDaily(r.daily)).catch((e) => { hasError = true; setApiError(e.message); return null; }),
-      api.getAnalyticsAgents().then(r => setAgents(r.agents)).catch((e) => { hasError = true; setApiError(e.message); return null; }),
-      api.getConversationsTrend(24).then(r => setTrend(r.trend)).catch((e) => { hasError = true; setApiError(e.message); return null; }),
+      api.getAnalyticsOverview().then(r => setOverview(r.overview)).catch(() => { hasError = true; return null; }),
+      api.getAnalyticsDaily(7).then(r => setDaily(r.daily)).catch(() => { hasError = true; return null; }),
+      api.getAnalyticsAgents().then(r => setAgents(r.agents)).catch(() => { hasError = true; return null; }),
+      api.getConversationsTrend(24).catch(() => { hasError = true; return null; }),
     ]).finally(() => {
       setLoading(false);
       if (hasError) {

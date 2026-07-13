@@ -27,14 +27,14 @@
     "src",
     "server",
     "server.ts",
-    "prisma/seed.ts"
+    "prisma/seed.ts",
+    "test"
   ],
   "exclude": [
     "node_modules",
     "dist",
     "wacalls",
     "whatsmeow-bridge",
-    "scripts",
-    "test"
+    "scripts"
   ]
 }

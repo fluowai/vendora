@@ -18,7 +18,7 @@ import calendarRoutes from "./server/routes/calendar.ts";
 import { errorHandler } from "./server/middleware/error-handler.ts";
 import { authLimiter, apiLimiter } from "./server/middleware/rate-limit.ts";
 import { requestIdMiddleware, logger } from "./server/lib/logger.ts";
-import { setupSocket, getIO } from "./server/lib/socket.ts";
+import { setupSocket } from "./server/lib/socket.ts";
 import { setupWorkers, shutdownQueues } from "./server/lib/queue.ts";
 import prisma from "./server/lib/prisma.ts";
 import { registerMetricsEndpoint, trackHttpRequest } from "./server/lib/metrics.ts";
@@ -33,7 +33,7 @@ import pabxRoutes from "./server/routes/pabx.ts";
 import { getWaCallsBridge } from "./server/lib/wacalls-sse.ts";
 import { getWahaplusBridge } from "./server/lib/wahaplus-sse.ts";
 import { getWacallsCandidateUrls } from "./server/lib/wacalls-client.ts";
-import { ensureWaCallsBuilt, startEmbeddedWaCalls } from "./server/lib/wacalls-process.ts";
+import { startEmbeddedWaCalls } from "./server/lib/wacalls-process.ts";
 import { initSentry } from "./server/lib/sentry.ts";
 
 let wacallsProcess: import("child_process").ChildProcess | null = null;
@@ -66,7 +66,7 @@ function requireEnv(name: string, opts?: { allowDefault?: boolean }): string {
   return value;
 }
 
-const jwtSecret = requireEnv("JWT_SECRET");
+requireEnv("JWT_SECRET");
 requireEnv("JWT_REFRESH_SECRET");
 
 initSentry();

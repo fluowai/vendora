@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
   Phone, Plus, Trash2, Edit3, Users, GitBranch, Voicemail,
-  Music, Settings, ArrowRight, BarChart3, Loader2, PhoneIncoming,
-  PhoneOutgoing, Clock, CheckCircle2, XCircle, Play, Pause,
+  ArrowRight, BarChart3, Loader2, PhoneIncoming,
+  PhoneOutgoing, XCircle,
 } from "lucide-react";
 import { usePabxExtensions, usePabxQueues, usePabxIvr, usePabxRoutes, usePabxStats } from "../hooks/usePabx";
 import type { PabxExtension, PabxQueue, PabxIvrMenu, PabxCallRoute } from "../types/pabx";
@@ -259,7 +259,6 @@ function ExtensionsTab() {
 
 function QueuesTab() {
   const { queues, loading, create, update, remove } = usePabxQueues();
-  const { extensions } = usePabxExtensions();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<PabxQueue | null>(null);
   const [form, setForm] = useState<{ name: string; strategy: string; ringTimeout: number; maxWaitTime: number; maxCallers: number }>({ name: "", strategy: "ringall", ringTimeout: 30, maxWaitTime: 300, maxCallers: 10 });

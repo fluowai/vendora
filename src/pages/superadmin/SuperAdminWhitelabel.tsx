@@ -26,7 +26,7 @@ export default function SuperAdminWhitelabel() {
     fetch("/api/superadmin/plans", { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => res.json())
       .then((data) => setPlans(data.plans || []))
-      .catch(console.error)
+      .catch(() => setPlans([]))
   }, [])
 
   const createWhiteLabel = async () => {

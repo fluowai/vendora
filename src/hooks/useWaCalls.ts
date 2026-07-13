@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import type { CallRecord, WaSession } from "../types/calls";
-import { api } from "../lib/api";
 
 interface WaCallsState {
   sessions: WaSession[]
@@ -33,7 +32,7 @@ export function useWaCalls() {
     const token = localStorage.getItem("vendaora_token");
     if (!token) return;
 
-    const socket = io({ auth: { token } });
+    const socket = io({ auth: { token }, transports: ["websocket"] });
     socketRef.current = socket;
 
     socket.on("connect", () => {

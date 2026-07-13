@@ -1,5 +1,5 @@
 import prisma from "./prisma.ts";
-import { executeLLM } from "./providers.ts";
+import { DEFAULT_LLM_MODEL, DEFAULT_LLM_PROVIDER, executeLLM } from "./providers.ts";
 import { logger } from "./logger.ts";
 
 const SUMMARY_INTERVAL = 10;
@@ -34,7 +34,7 @@ export async function summarizeConversation(conversationId: string): Promise<str
     if (!transcript) return null;
 
     const result = await executeLLM(
-      { provider: "gemini", model: "gemini-3-flash-preview", temperature: 0.3, maxTokens: 512 },
+      { provider: DEFAULT_LLM_PROVIDER, model: DEFAULT_LLM_MODEL, temperature: 0.3, maxTokens: 512 },
       `Resuma a seguinte conversa de atendimento em português. Seja objetivo e inclua:
 - Assunto principal
 - O que já foi resolvido

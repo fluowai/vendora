@@ -101,7 +101,6 @@ export default function SuperAdminTenants() {
         setError(data.error || "Nao foi possivel carregar os clientes.")
       }
     } catch (err) {
-      console.error(err)
       setError(err instanceof Error ? err.message : "Erro ao carregar clientes.")
     } finally {
       setLoading(false)
@@ -118,8 +117,7 @@ export default function SuperAdminTenants() {
       const whiteLabelsData = await readApiJson(whiteLabelsRes)
       if (plansRes.ok) setPlans(plansData.plans || [])
       if (whiteLabelsRes.ok) setWhiteLabels(whiteLabelsData.whiteLabels || [])
-    } catch (err) {
-      console.error(err)
+    } catch {
     }
   }
 
@@ -160,8 +158,7 @@ export default function SuperAdminTenants() {
       }
       setSelectedTenant(null)
       fetchTenants()
-    } catch (err) {
-      console.error(err)
+    } catch {
       setError("Erro ao salvar cliente.")
     } finally {
       setSaving(false)
@@ -207,8 +204,7 @@ export default function SuperAdminTenants() {
       setCreateData(emptyClientForm)
       setShowCreate(false)
       fetchTenants()
-    } catch (err) {
-      console.error(err)
+    } catch {
       setError("Erro ao criar cliente.")
     } finally {
       setSaving(false)
@@ -229,8 +225,7 @@ export default function SuperAdminTenants() {
         return
       }
       fetchTenants()
-    } catch (err) {
-      console.error(err)
+    } catch {
       alert("Erro ao excluir cliente.")
     }
   }

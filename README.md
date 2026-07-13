@@ -46,6 +46,11 @@ go build -o bridge.exe .
 npm install
 npm run dev
 
+# Verificação local antes do commit
+npm run lint
+npm test
+npm run build
+
 # Ou use o script automatizado:
 .\scripts\start-dev.ps1
 ```
@@ -104,6 +109,8 @@ Login: `super@vendaora.com` / `super123` → `/superadmin`
 | Variável | Obrigatória | Descrição |
 | -------- | ----------- | --------- |
 | `SENTRY_DSN` | Não | DSN do Sentry para error tracking |
+| `ENABLE_EMBEDDED_WACALLS` | Não | Ativa tentativa de iniciar WaCalls local embutido se `WACALLS_URL` não estiver configurado |
+| `ENABLE_EMBEDDED_WAHAPLUS` | Não | Ativa tentativa de iniciar WAHA+ local embutido se `WAHAPLUS_URL` não estiver configurado |
 
 ### Backup Automatizado
 

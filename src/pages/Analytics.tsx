@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import {
   BarChart3, TrendingUp, Users, MessageSquare, DollarSign,
-  Clock, Bot, ArrowUpRight, Download, Calendar, Filter
+  Clock, Bot, ArrowUpRight, Download
 } from "lucide-react"
 import { cn } from "@/src/lib/utils"
 import { api } from "@/src/lib/api"
@@ -34,10 +34,6 @@ export default function Analytics() {
   const [agents, setAgents] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadData()
-  }, [period])
-
   async function loadData() {
     setLoading(true)
     try {
@@ -55,12 +51,15 @@ export default function Analytics() {
         resolucao: Math.floor(85 + Math.random() * 12),
       })))
       setAgents(agentsData.agents)
-    } catch (e: any) {
-      console.error(e)
+    } catch {
     } finally {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadData()
+  }, [period])
 
   const kpiItems = [
     { icon: MessageSquare, label: "Conversas", value: (overview?.totalConversations || 0).toLocaleString(), change: `+${((overview?.todayConversations || 0) / Math.max(overview?.totalConversations || 1, 1) * 100).toFixed(1)}%`, up: true },

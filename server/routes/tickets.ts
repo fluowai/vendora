@@ -2,7 +2,6 @@ import { Router, Request, Response } from "express";
 import prisma from "../lib/prisma.ts";
 import { authMiddleware } from "../middleware/auth.ts";
 import { requirePermission } from "../middleware/permissions.ts";
-import { validate, schemas } from "../middleware/validate.ts";
 import { z } from "zod";
 
 const router = Router();

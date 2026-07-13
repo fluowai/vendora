@@ -1,4 +1,4 @@
-import { Phone, PhoneIncoming, PhoneOutgoing, Clock } from "lucide-react";
+import { PhoneIncoming, PhoneOutgoing, Clock } from "lucide-react";
 import type { CallRecord } from "../../types/calls";
 import { preferredCallPeer } from "../../lib/phone";
 

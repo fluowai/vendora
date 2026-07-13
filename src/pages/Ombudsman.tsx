@@ -37,8 +37,7 @@ export default function Ombudsman() {
       });
       setCases(data.cases);
       setStats(data.stats);
-    } catch (e: any) {
-      console.error(e);
+    } catch {
     } finally {
       setLoading(false);
     }

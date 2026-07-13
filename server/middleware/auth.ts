@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { supabaseAdmin, isSupabaseReady } from "../lib/supabase.ts";
-import { logger } from "../lib/logger.ts";
 
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;

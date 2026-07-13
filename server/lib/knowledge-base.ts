@@ -95,7 +95,7 @@ export async function searchKnowledgeBaseDetailed(kbId: string, query: string, m
     .slice(0, maxResults);
 }
 
-function chunkText(text: string, chunkSize = 500, overlap = 50): string[] {
+function chunkText(text: string, chunkSize = 500, _overlap = 50): string[] {
   if (!text) return [];
 
   const chunks: string[] = [];

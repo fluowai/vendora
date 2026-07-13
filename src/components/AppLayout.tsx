@@ -57,6 +57,100 @@ function expireSession() {
   localStorage.removeItem("vendaora_mega_user");
 }
 
+type SidebarContentProps = {
+  locationPathname: string
+  navClass: (isActive: boolean) => string
+  settingsOpen: boolean
+  onToggleSettings: () => void
+  onNavigateDashboard: () => void
+  onLogout: () => void
+}
+
+function SidebarContent({
+  locationPathname,
+  navClass,
+  settingsOpen,
+  onToggleSettings,
+  onNavigateDashboard,
+  onLogout,
+}: SidebarContentProps) {
+  return (
+    <>
+      <div className="px-5 pb-4 pt-5">
+        <BrandLogo />
+      </div>
+
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+        <p className="px-4 pb-3 pt-2 text-[10px] font-bold uppercase tracking-[0.24em] text-muted">
+          Navegacao principal
+        </p>
+        {primaryNav.map((item) => (
+          <NavLink key={item.href} to={item.href} className={({ isActive }) => navClass(isActive)}>
+            <item.icon className="h-4.5 w-4.5 shrink-0" />
+            <span className="truncate">{item.label}</span>
+          </NavLink>
+        ))}
+
+        <button
+          type="button"
+          onClick={onToggleSettings}
+          className={cn(
+            "mt-2 flex w-full min-h-10 items-center gap-3 rounded-full px-4 py-2.5 text-sm font-semibold transition-all",
+            locationPathname.includes("/settings") ? "bg-[#CFF4DF] text-[#14705B]" : "text-text/80 hover:bg-[#F4F8F8]",
+          )}
+        >
+          <Settings className="h-4.5 w-4.5 shrink-0" />
+          <span className="flex-1 truncate text-left">Configuracoes</span>
+          <ChevronDown className={cn("h-4 w-4 transition-transform", settingsOpen && "rotate-180")} />
+        </button>
+        {settingsOpen && (
+          <div className="ml-6 mt-1 space-y-1 border-l border-border pl-3">
+            {settingsNav.map((item) => (
+              <NavLink
+                key={item.label}
+                to={item.href}
+                className={({ isActive }) => cn(
+                  "flex min-h-9 items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-all",
+                  isActive ? "bg-primary text-white" : "text-text/70 hover:bg-[#F4F8F8] hover:text-primary",
+                )}
+              >
+                <item.icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{item.label}</span>
+              </NavLink>
+            ))}
+          </div>
+        )}
+
+        <NavLink to="connections" className={({ isActive }) => cn(navClass(isActive), "mt-3")}>
+          <Plug className="h-4.5 w-4.5 shrink-0" />
+          <span className="truncate">Perfil WhatsApp</span>
+        </NavLink>
+      </nav>
+
+      <div className="space-y-3 border-t border-border px-4 py-4">
+        <div className="rounded-xl bg-[#F6F8F8] px-4 py-3">
+          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-muted">Plano atual</p>
+          <p className="text-sm font-black text-text">Basico</p>
+        </div>
+        <button
+          onClick={onNavigateDashboard}
+          className="flex w-full items-center gap-3 rounded-full bg-[#F6F8F8] px-4 py-2.5 text-sm font-bold text-text"
+        >
+          <Menu className="h-4 w-4" />
+          Menu
+        </button>
+        <button
+          onClick={onLogout}
+          className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-sm font-bold text-red-600 transition hover:bg-red-50"
+        >
+          <LogOut className="h-4 w-4" />
+          Sair
+        </button>
+      </div>
+    </>
+  );
+}
+
 export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -129,91 +223,22 @@ export default function AppLayout() {
       : "text-text/80 hover:bg-[#F4F8F8] hover:text-primary",
   );
 
-  const SidebarContent = () => (
-    <>
-      <div className="px-5 pb-4 pt-5">
-        <BrandLogo />
-      </div>
-
-      <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-        <p className="px-4 pb-3 pt-2 text-[10px] font-bold uppercase tracking-[0.24em] text-muted">
-          Navegacao principal
-        </p>
-        {primaryNav.map((item) => (
-          <NavLink key={item.href} to={item.href} className={({ isActive }) => navClass(isActive)}>
-            <item.icon className="h-4.5 w-4.5 shrink-0" />
-            <span className="truncate">{item.label}</span>
-          </NavLink>
-        ))}
-
-        <button
-          type="button"
-          onClick={() => setSettingsOpen((open) => !open)}
-          className={cn(
-            "mt-2 flex w-full min-h-10 items-center gap-3 rounded-full px-4 py-2.5 text-sm font-semibold transition-all",
-            location.pathname.includes("/settings") ? "bg-[#CFF4DF] text-[#14705B]" : "text-text/80 hover:bg-[#F4F8F8]",
-          )}
-        >
-          <Settings className="h-4.5 w-4.5 shrink-0" />
-          <span className="flex-1 truncate text-left">Configuracoes</span>
-          <ChevronDown className={cn("h-4 w-4 transition-transform", settingsOpen && "rotate-180")} />
-        </button>
-        {settingsOpen && (
-          <div className="ml-6 mt-1 space-y-1 border-l border-border pl-3">
-            {settingsNav.map((item) => (
-              <NavLink
-                key={item.label}
-                to={item.href}
-                className={({ isActive }) => cn(
-                  "flex min-h-9 items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold transition-all",
-                  isActive ? "bg-primary text-white" : "text-text/70 hover:bg-[#F4F8F8] hover:text-primary",
-                )}
-              >
-                <item.icon className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{item.label}</span>
-              </NavLink>
-            ))}
-          </div>
-        )}
-
-        <NavLink to="connections" className={({ isActive }) => cn(navClass(isActive), "mt-3")}>
-          <Plug className="h-4.5 w-4.5 shrink-0" />
-          <span className="truncate">Perfil WhatsApp</span>
-        </NavLink>
-      </nav>
-
-      <div className="space-y-3 border-t border-border px-4 py-4">
-        <div className="rounded-xl bg-[#F6F8F8] px-4 py-3">
-          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-muted">Plano atual</p>
-          <p className="text-sm font-black text-text">Basico</p>
-        </div>
-        <button
-          onClick={() => navigate("/app/dashboard")}
-          className="flex w-full items-center gap-3 rounded-full bg-[#F6F8F8] px-4 py-2.5 text-sm font-bold text-text"
-        >
-          <Menu className="h-4 w-4" />
-          Menu
-        </button>
-        <button
-          onClick={() => {
-            expireSession();
-            navigate("/");
-          }}
-          className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-sm font-bold text-red-600 transition hover:bg-red-50"
-        >
-          <LogOut className="h-4 w-4" />
-          Sair
-        </button>
-      </div>
-    </>
-  );
-
   return (
     <div className="flex h-screen bg-bg text-text">
       <GlobalCallHandler />
 
       <aside className="hidden w-[272px] shrink-0 flex-col border-r border-border bg-white lg:flex">
-        <SidebarContent />
+        <SidebarContent
+          locationPathname={location.pathname}
+          navClass={navClass}
+          settingsOpen={settingsOpen}
+          onToggleSettings={() => setSettingsOpen((open) => !open)}
+          onNavigateDashboard={() => navigate("/app/dashboard")}
+          onLogout={() => {
+            expireSession();
+            navigate("/");
+          }}
+        />
       </aside>
 
       <AnimatePresence>
@@ -236,7 +261,17 @@ export default function AppLayout() {
               <button onClick={() => setIsMobileMenuOpen(false)} className="absolute right-3 top-3 rounded-lg p-2 text-muted">
                 <X className="h-5 w-5" />
               </button>
-              <SidebarContent />
+              <SidebarContent
+                locationPathname={location.pathname}
+                navClass={navClass}
+                settingsOpen={settingsOpen}
+                onToggleSettings={() => setSettingsOpen((open) => !open)}
+                onNavigateDashboard={() => navigate("/app/dashboard")}
+                onLogout={() => {
+                  expireSession();
+                  navigate("/");
+                }}
+              />
             </motion.aside>
           </>
         )}

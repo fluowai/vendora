@@ -40,8 +40,7 @@ export default function Tickets() {
       });
       setTickets(data.tickets);
       setStats(data.stats);
-    } catch (e: any) {
-      console.error(e);
+    } catch {
     } finally {
       setLoading(false);
     }

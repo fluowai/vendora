@@ -27,7 +27,7 @@ export default function SuperAdminPlans() {
         })
         const data = await res.json()
         if (res.ok) setPlans(data.plans)
-      } catch (err) { console.error(err) }
+      } catch {}
       finally { setLoading(false) }
     }
     loadPlans()
@@ -67,7 +67,7 @@ export default function SuperAdminPlans() {
         const json = await data.json()
         if (data.ok) setPlans(json.plans)
       }
-    } catch (err) { console.error(err) }
+    } catch {}
   }
 
   const handleDelete = async (id: string) => {
@@ -83,7 +83,7 @@ export default function SuperAdminPlans() {
       } else {
         alert(data.error || "Nao foi possivel excluir o plano.")
       }
-    } catch (err) { console.error(err) }
+    } catch {}
   }
 
   return (

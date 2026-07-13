@@ -7,9 +7,6 @@ import {
   deleteAgent,
   executeAgent,
   getPublishedAgents,
-  getAgentsBySegment,
-  getTopRatedAgents,
-  getMostInstalledAgents,
 } from "../lib/agent-engine.ts";
 import { executeWorkflow, createWorkflow, getWorkflows, orchestrateWithAgents } from "../lib/orchestrator.ts";
 import {

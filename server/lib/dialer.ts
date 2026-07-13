@@ -139,7 +139,7 @@ async function createAttempt(
 async function onCallInitiated(
   campaign: { id: string; tenantId: string; agentId?: string | null },
   contact: { id: string; phone: string; name?: string | null; campaignId: string; contactId?: string | null },
-  callId?: string,
+  _callId?: string,
 ) {
   await prisma.campaignContact.update({
     where: { id: contact.id },
@@ -154,7 +154,7 @@ async function failAttempt(attemptId: string, errorMessage: string) {
   });
 }
 
-async function pauseCampaign(campaignId: string, reason: string) {
+async function pauseCampaign(campaignId: string, _reason: string) {
   await prisma.dialingCampaign.update({
     where: { id: campaignId },
     data: { status: "paused" },

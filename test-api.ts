@@ -53,7 +53,7 @@ async function main() {
     company: "Smoke Co",
   }, undefined, 201, "Register tenant admin");
 
-  let token = register.data?.token as string | undefined;
+  const token = register.data?.token as string | undefined;
   await test("POST", "/api/auth/login", { email, password }, undefined, 200, "Login");
   await test("GET", "/api/auth/me", undefined, token, 200, "Current user");
 

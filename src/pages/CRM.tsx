@@ -39,8 +39,7 @@ export default function CRM() {
       if (data.funnels.length > 0 && !activeFunnel) {
         setActiveFunnel(data.funnels[0].id);
       }
-    } catch (e: any) {
-      console.error(e);
+    } catch {
     } finally {
       setLoading(false);
     }
@@ -50,8 +49,7 @@ export default function CRM() {
     try {
       const data = await api.getFunnelStages(funnelId);
       setStages(data.stages);
-    } catch (e: any) {
-      console.error(e);
+    } catch {
     }
   }
 

@@ -38,7 +38,7 @@ function parseRequestedDate(message: string, now = new Date()) {
 
   const hours = parseInt(timeMatch[1], 10);
   const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
-  const dateMatch = text.match(/\b([0-3]?\d)[\/-]([01]?\d)(?:[\/-](\d{2,4}))?\b/);
+  const dateMatch = text.match(/\b([0-3]?\d)[/-]([01]?\d)(?:[/-](\d{2,4}))?\b/);
 
   let year = now.getFullYear();
   let month = now.getMonth();

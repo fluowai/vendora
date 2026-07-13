@@ -1,7 +1,7 @@
 import {
-  Phone, PhoneCall, Headphones, MessageSquare, Users, BarChart3,
-  ArrowRight, CheckCircle2, Menu, X, Zap, ShieldCheck, Sliders,
-  Timer, Voicemail, LineChart, Globe, Bot, ChevronDown,
+  Phone, PhoneCall, Users,
+  ArrowRight, CheckCircle2, Menu, X, Zap, Sliders,
+  Timer, Voicemail, ChevronDown,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";

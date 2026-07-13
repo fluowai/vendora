@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Save, Building2, Mail, Phone, FileText, Shield, Users, Plus, X, Trash2 } from "lucide-react";
+import { Save, Building2, FileText, Shield, Users, Plus, X, Trash2 } from "lucide-react";
 import { api } from "@/src/lib/api";
 import { useToast } from "@/src/components/Toast";
 
@@ -9,7 +9,6 @@ export default function Settings() {
   const [team, setTeam] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
   const tabs = [
@@ -24,7 +23,6 @@ export default function Settings() {
   }, [tab]);
 
   async function loadData() {
-    setLoading(true);
     try {
       if (tab === "company") {
         const data = await api.getSettings();
@@ -41,9 +39,7 @@ export default function Settings() {
       }
     } catch (e: any) {
       toast(e.message, "error");
-    } finally {
-      setLoading(false);
-    }
+    } finally {}
   }
 
   return (

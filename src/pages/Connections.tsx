@@ -28,7 +28,6 @@ export default function Connections() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checkingId, setCheckingId] = useState("");
-  const [qrByInstance, setQrByInstance] = useState<Record<string, string>>({});
   const [statusByInstance, setStatusByInstance] = useState<Record<string, any>>({});
   const [error, setError] = useState("");
   const [pairingId, setPairingId] = useState<string | null>(null);
@@ -228,7 +227,6 @@ export default function Connections() {
         return false;
       }
       const image = await QRCode.toDataURL(data.qr, { margin: 2, width: 280 });
-      setQrByInstance((items) => ({ ...items, [id]: image }));
       setStatusByInstance((items) => ({ ...items, [id]: data }));
       setPairingQr(image);
       setPairingLastUpdatedAt(new Date());
@@ -281,7 +279,6 @@ export default function Connections() {
           setPairingQr(null);
         } else if (st?.qr) {
           const newImg = await QRCode.toDataURL(st.qr, { margin: 2, width: 280 });
-          setQrByInstance((items) => ({ ...items, [id]: newImg }));
           setPairingQr(newImg);
           setPairingLastUpdatedAt(new Date());
         }
@@ -334,11 +331,6 @@ export default function Connections() {
       await api.deleteConnection(connection.id, true);
       setConnections((items) => items.filter((item) => item.id !== connection.id));
       setStatusByInstance((items) => {
-        const next = { ...items };
-        delete next[connection.id];
-        return next;
-      });
-      setQrByInstance((items) => {
         const next = { ...items };
         delete next[connection.id];
         return next;

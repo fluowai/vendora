@@ -11,6 +11,7 @@ function getSocketUrl(): string | undefined {
 
 export function useSocket() {
   const socketRef = useRef<Socket | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<any>(null);
 
@@ -20,7 +21,7 @@ export function useSocket() {
 
     const socketOptions = {
       auth: { token },
-      transports: ["websocket", "polling"],
+      transports: ["websocket"],
     };
     const socketUrl = getSocketUrl();
     const socket = socketUrl ? io(socketUrl, socketOptions) : io(socketOptions);
@@ -56,10 +57,12 @@ export function useSocket() {
     });
 
     socketRef.current = socket;
+    setSocket(socket);
 
     return () => {
       socket.disconnect();
       socketRef.current = null;
+      setSocket(null);
     };
   }, []);
 
@@ -80,7 +83,7 @@ export function useSocket() {
   }, []);
 
   return {
-    socket: socketRef.current,
+    socket,
     connected,
     lastMessage,
     joinConversation,

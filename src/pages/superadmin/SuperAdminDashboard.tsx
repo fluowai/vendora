@@ -29,8 +29,7 @@ export default function SuperAdminDashboard() {
         })
         const data = await res.json()
         if (res.ok) setStats(data.stats)
-      } catch (err) {
-        console.error("Failed to fetch stats:", err)
+      } catch {
       } finally {
         setLoading(false)
       }
